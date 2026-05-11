@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import styles from "../page.module.css";
 import type {
   ContractLeg,
@@ -10,6 +11,7 @@ import type {
   SleeveDirection,
   SleeveVerdict,
   StockAction,
+  Verdict,
 } from "../../lib/types";
 import {
   IconArrowDown,
@@ -20,6 +22,7 @@ import {
   IconRoll,
   IconSparkle,
 } from "./icons";
+import { OrderModal, type OrderModalIntent } from "./OrderModal";
 
 type Tone = "bullish" | "bearish" | "neutral";
 type IconCmp = (props: { className?: string }) => React.ReactElement;
@@ -101,7 +104,17 @@ export function VerdictCard({ data, isPickLoading = false, pickError = null }: {
 
       <div className={styles.sleeveGrid}>
         <StockSleeve sleeve={v.stock} />
-        <DerivativesSleeve sleeve={v.derivatives} isPickLoading={isPickLoading} pickError={pickError} />
+        <DerivativesSleeve
+          sleeve={v.derivatives}
+          isPickLoading={isPickLoading}
+          pickError={pickError}
+          verdict={v}
+          ticker={data.ticker}
+          // IBKR underlying lookups expect the bare ticker (e.g. "NVDA"),
+          // not the moomoo-prefixed symbol ("US.NVDA"). data.ticker is bare;
+          // data.symbol is the moomoo form used for snapshot/news APIs only.
+          symbol={data.ticker}
+        />
       </div>
 
       <p className={styles.rationale}>{v.rationale}</p>
@@ -135,7 +148,21 @@ function StockSleeve({ sleeve }: { sleeve: SleeveVerdict<StockAction> }) {
   );
 }
 
-function DerivativesSleeve({ sleeve, isPickLoading, pickError }: { sleeve: SleeveVerdict<DerivativesAction>; isPickLoading: boolean; pickError: string | null }) {
+function DerivativesSleeve({
+  sleeve,
+  isPickLoading,
+  pickError,
+  verdict,
+  ticker,
+  symbol,
+}: {
+  sleeve: SleeveVerdict<DerivativesAction>;
+  isPickLoading: boolean;
+  pickError: string | null;
+  verdict: Verdict;
+  ticker: string;
+  symbol: string;
+}) {
   const meta = DERIVATIVES_ACTION_META[sleeve.action];
   const tone: Tone = (sleeve.action === "INCREASE" || sleeve.action === "HOLD" || sleeve.action === "PASS")
     ? DIRECTION_TONE[sleeve.direction]
@@ -153,7 +180,7 @@ function DerivativesSleeve({ sleeve, isPickLoading, pickError }: { sleeve: Sleev
       </div>
       <AdjustmentBlock adj={sleeve.adjustment} />
       {sleeve.contractPick
-        ? <ContractPickCard pick={sleeve.contractPick} />
+        ? <ContractPickCard pick={sleeve.contractPick} verdict={verdict} ticker={ticker} symbol={symbol} />
         : isPickLoading
           ? <ContractPickSkeleton />
           : pickError
@@ -252,14 +279,57 @@ function AdjustmentBlock({ adj }: { adj: PositionAdjustment }) {
   );
 }
 
-function ContractPickCard({ pick }: { pick: ContractPick }) {
+// Delta-as-POP approximation. This is the standard retail option-platform
+// heuristic — short-leg |Δ| ≈ probability the contract finishes ITM at expiry,
+// so 1 − |Δ| is the probability the contract is OTM (i.e. POP for a short).
+// It's an approximation: real POP requires a vol-aware Monte Carlo or a
+// risk-neutral pricing model. For long debit structures we fall back to the
+// long-leg delta as a rough "chance of finishing ITM" proxy.
+function popFromPick(pick: ContractPick): number | null {
+  const absD = (d: number | null | undefined): number | null => d == null ? null : Math.abs(d);
+  switch (pick.strategy) {
+    case "SELL_PUT_SPREAD":
+    case "SELL_CALL_SPREAD":
+    case "SELL_CASH_SECURED_PUT":
+    case "SELL_COVERED_CALL": {
+      const dShort = absD(pick.shortLeg?.delta);
+      return dShort == null ? null : 1 - dShort;
+    }
+    case "IRON_CONDOR": {
+      const dp = absD(pick.shortPutLeg?.delta);
+      const dc = absD(pick.shortCallLeg?.delta);
+      if (dp == null || dc == null) return null;
+      return Math.max(0, 1 - dp - dc);
+    }
+    case "BUY_CALL_SPREAD":
+    case "BUY_PUT_SPREAD": {
+      // Proxy: probability the underlying clears the long strike. Use long Δ.
+      const dLong = absD(pick.longLeg?.delta);
+      return dLong;
+    }
+    default:
+      return null;
+  }
+}
+
+function popTone(pop: number | null): "bullish" | "bearish" | "neutral" {
+  if (pop == null) return "neutral";
+  if (pop >= 0.65) return "bullish";
+  if (pop < 0.50) return "bearish";
+  return "neutral";
+}
+
+function ContractPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPick; verdict: Verdict; ticker: string; symbol: string }) {
+  const [modalOpen, setModalOpen] = useState(false);
   if (pick.strategy === "ROLL_OUT" && pick.rollPlan) {
-    return <RollPickCard pick={pick} />;
+    return <RollPickCard pick={pick} verdict={verdict} ticker={ticker} symbol={symbol} />;
   }
   const isSpread = !!pick.longLeg && !!pick.shortLeg;
   const isCredit = pick.netCredit !== undefined && pick.netCredit !== null;
   const quoted = pick.quotesAvailable;
   const dash = "—";
+  const pop = popFromPick(pick);
+  const popLabel = pop == null ? dash : `${Math.round(pop * 100)}%`;
   return (
     <div className={styles.contractCard}>
       <div className={styles.contractStrategy}>
@@ -301,6 +371,11 @@ function ContractPickCard({ pick }: { pick: ContractPick }) {
           value={quoted ? `$${pick.breakeven.toFixed(2)}` : dash}
           tone="neutral"
         />
+        <Metric
+          label="POP"
+          value={popLabel}
+          tone={popTone(pop)}
+        />
         <Metric label="Contracts" value={String(pick.suggestedContracts)} tone="neutral" />
         <Metric
           label="Max Risk"
@@ -308,12 +383,29 @@ function ContractPickCard({ pick }: { pick: ContractPick }) {
           tone="neutral"
         />
       </div>
-      <p className={styles.contractRationale}>{pick.rationale}</p>
+      {quoted && (
+        <div className={styles.journalActions} style={{ justifyContent: "flex-end", marginTop: 8 }}>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            onClick={() => setModalOpen(true)}
+          >
+            Place order
+          </button>
+        </div>
+      )}
+      {modalOpen && (
+        <OrderModal
+          intent={{ kind: "open-pick", pick, verdict, ticker, symbol } as OrderModalIntent}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
-function RollPickCard({ pick }: { pick: ContractPick }) {
+function RollPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPick; verdict: Verdict; ticker: string; symbol: string }) {
+  const [modalOpen, setModalOpen] = useState(false);
   const rp = pick.rollPlan!;
   const isCredit = rp.netRollCredit >= 0;
   return (
@@ -354,7 +446,21 @@ function RollPickCard({ pick }: { pick: ContractPick }) {
         <Metric label="New BE" value={`$${rp.newBreakeven.toFixed(2)}`} tone="neutral" />
         <Metric label="Contracts" value={String(pick.suggestedContracts)} tone="neutral" />
       </div>
-      <p className={styles.contractRationale}>{pick.rationale}</p>
+      <div className={styles.journalActions} style={{ justifyContent: "flex-end", marginTop: 8 }}>
+        <button
+          type="button"
+          className={styles.btnPrimary}
+          onClick={() => setModalOpen(true)}
+        >
+          Place roll order
+        </button>
+      </div>
+      {modalOpen && (
+        <OrderModal
+          intent={{ kind: "roll", pick, verdict, ticker, symbol } as OrderModalIntent}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

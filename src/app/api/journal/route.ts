@@ -127,6 +127,13 @@ export async function POST(request: NextRequest) {
   if (!legs || legs.length === 0) {
     return Response.json({ error: "legs must be a non-empty array of {side, action, strike, deltaAtEntry, conid}" }, { status: 400 });
   }
+  let ibkrOpenOrderId: string | null = null;
+  if (body.ibkrOpenOrderId !== undefined && body.ibkrOpenOrderId !== null) {
+    if (typeof body.ibkrOpenOrderId !== "string" || !body.ibkrOpenOrderId.trim()) {
+      return Response.json({ error: "ibkrOpenOrderId must be a non-empty string when provided" }, { status: 400 });
+    }
+    ibkrOpenOrderId = body.ibkrOpenOrderId.trim();
+  }
 
   const input: JournalTradeInput = {
     ticker: body.ticker.trim().toUpperCase(),
@@ -140,6 +147,7 @@ export async function POST(request: NextRequest) {
     thesis: body.thesis.trim(),
     mgmtProfit: body.mgmtProfit.trim(),
     mgmtLoss: body.mgmtLoss.trim(),
+    ibkrOpenOrderId,
     legs,
   };
 

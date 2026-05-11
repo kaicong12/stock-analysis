@@ -89,7 +89,7 @@ async function withSecdefLimit<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function searchUnderlying(symbol: string): Promise<{ conid: number; months: string[] }> {
+export async function searchUnderlying(symbol: string): Promise<{ conid: number; months: string[] }> {
   const cached = storeGetUnderlying(symbol);
   // Empty months means a prior search resolved to an instrument with no
   // option chain (typically an IND or CFD that shared the ticker — see

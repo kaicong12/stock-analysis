@@ -37,6 +37,7 @@ export interface JournalTradeInput {
   thesis: string;
   mgmtProfit: string;
   mgmtLoss: string;
+  ibkrOpenOrderId?: string | null;   // IBKR order id from the opening submission
   legs: JournalLegInput[];
 }
 
@@ -57,6 +58,8 @@ export interface JournalTrade {
   closedAt: string | null;
   realizedPnl: number | null;
   exitReason: string | null;
+  ibkrOpenOrderId: string | null;
+  ibkrCloseOrderId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,6 +72,7 @@ export interface CloseTradeInput {
   realizedPnl: number;     // signed total $
   exitReason: string;
   closedAt?: string;       // ISO timestamp; defaults to now
+  ibkrCloseOrderId?: string | null;
 }
 
 export interface JournalListFilter {

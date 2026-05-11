@@ -79,6 +79,15 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       CREATE INDEX idx_journal_legs_trade           ON journal_legs (trade_id);
     `);
   },
+  (db) => {
+    // Track the IBKR order ids that opened and closed the trade so the UI can
+    // poll fill status and so we can reconcile journal entries against the
+    // gateway's order history.
+    db.exec(`
+      ALTER TABLE journal_trades ADD COLUMN ibkr_open_order_id  TEXT;
+      ALTER TABLE journal_trades ADD COLUMN ibkr_close_order_id TEXT;
+    `);
+  },
 ];
 
 function runMigrations(db: Database.Database): void {

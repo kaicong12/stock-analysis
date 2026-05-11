@@ -42,36 +42,45 @@ function panelError(headline: string, message: string): PanelSummary {
   };
 }
 
-async function runPanel(name: PanelName, ticker: string, symbol: string): Promise<PanelSummary> {
+interface PanelRunResult {
+  summary: PanelSummary;
+  // Surfaced for the fundamentals panel so the frontend can forward
+  // nextEarningsDate into the contract-pick API without re-fetching
+  // yfinance. Null for all other panels.
+  nextEarningsDate?: string | null;
+}
+
+async function runPanel(name: PanelName, ticker: string, symbol: string): Promise<PanelRunResult> {
   const ctx = { ticker, symbol };
   switch (name) {
     case "capital": {
       const data = await getAnomaly("capital", symbol);
-      return analyzeCapital(data, ctx);
+      return { summary: await analyzeCapital(data, ctx) };
     }
     case "technical": {
       const data = await getAnomaly("technical", symbol);
-      return analyzeTechnical(data, ctx);
+      return { summary: await analyzeTechnical(data, ctx) };
     }
     case "derivatives": {
       const data = await getAnomaly("derivatives", symbol);
-      return analyzeDerivatives(data, ctx);
+      return { summary: await analyzeDerivatives(data, ctx) };
     }
     case "news": {
       const data = await searchNews(ticker);
-      return analyzeNews(data, ctx);
+      return { summary: await analyzeNews(data, ctx) };
     }
     case "digest": {
       const data = await newsForDigest(ticker);
-      return analyzeDigest(data, ctx);
+      return { summary: await analyzeDigest(data, ctx) };
     }
     case "sentiment": {
       const data = await getStockFeed(ticker);
-      return analyzeSentiment(data, ctx);
+      return { summary: await analyzeSentiment(data, ctx) };
     }
     case "fundamentals": {
       const data = await getFundamentals(symbol);
-      return analyzeFundamentals(data, ctx);
+      const summary = await analyzeFundamentals(data, ctx);
+      return { summary, nextEarningsDate: data?.data?.nextEarningsDate ?? null };
     }
   }
 }
@@ -99,8 +108,8 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ name: 
   const tk = toTicker(symbol);
 
   try {
-    const summary = await runPanel(name as PanelName, tk, symbol);
-    return Response.json({ name, summary });
+    const result = await runPanel(name as PanelName, tk, symbol);
+    return Response.json({ name, summary: result.summary, nextEarningsDate: result.nextEarningsDate ?? null });
   } catch (e) {
     const msg = (e as Error).message;
     console.error(`[panel:${name}] failed:`, msg);

@@ -25,6 +25,8 @@ interface TradeRow {
   closed_at: string | null;
   realized_pnl: number | null;
   exit_reason: string | null;
+  ibkr_open_order_id: string | null;
+  ibkr_close_order_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +59,8 @@ function rowToTrade(r: TradeRow): JournalTrade {
     closedAt: r.closed_at,
     realizedPnl: r.realized_pnl,
     exitReason: r.exit_reason,
+    ibkrOpenOrderId: r.ibkr_open_order_id,
+    ibkrCloseOrderId: r.ibkr_close_order_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -116,8 +120,9 @@ export function createTrade(input: JournalTradeInput): JournalTradeWithLegs {
       INSERT INTO journal_trades (
         ticker, strategy, status, expiry, dte_at_entry, iv_rank,
         net_credit, max_risk, contracts, thesis, mgmt_profit, mgmt_loss,
+        ibkr_open_order_id,
         created_at, updated_at
-      ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = insertTrade.run(
       input.ticker,
@@ -131,6 +136,7 @@ export function createTrade(input: JournalTradeInput): JournalTradeWithLegs {
       input.thesis,
       input.mgmtProfit,
       input.mgmtLoss,
+      input.ibkrOpenOrderId ?? null,
       now,
       now,
     );
@@ -202,10 +208,18 @@ export function closeTrade(id: number, exit: CloseTradeInput): JournalTradeWithL
            realized_pnl = ?,
            exit_reason = ?,
            closed_at = ?,
+           ibkr_close_order_id = COALESCE(?, ibkr_close_order_id),
            updated_at = ?
      WHERE id = ? AND status = 'open'
   `);
-  const info = stmt.run(exit.realizedPnl, exit.exitReason, closedAt, now, id);
+  const info = stmt.run(
+    exit.realizedPnl,
+    exit.exitReason,
+    closedAt,
+    exit.ibkrCloseOrderId ?? null,
+    now,
+    id,
+  );
   if (info.changes === 0) {
     throw new Error(`closeTrade: trade ${id} not found or already closed`);
   }

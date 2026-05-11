@@ -10,7 +10,14 @@ Conventions:
 - Negative profitMargins or operatingMargins = unprofitable. Note it explicitly.
 - Negative freeCashflow = burning cash; flag it.
 - 52-week range proximity: currentPrice / fiftyTwoWeekHigh > 0.95 = near highs (extended); < fiftyTwoWeekLow * 1.10 = near lows (washed out / value or falling-knife).
-- nextEarningsDate matters because IV inflates pre-earnings and crushes after. If earnings are within ~10 days, call it out — directional plays should usually wait.
+- nextEarningsDate matters because IV inflates pre-earnings and crushes after. The input payload includes earningsDaysAway (integer, days from today to the earnings date). This is the load-bearing event signal — see the EARNINGS HEADLINE RULE below; the headline must lead/trail with it. If earnings are within ~10 days, directional plays should usually wait.
+
+EARNINGS HEADLINE RULE (non-negotiable when earningsDaysAway is non-null):
+- earningsDaysAway ≤ 14: the headline MUST BEGIN with the exact string "[EARNINGS in {N}d] " (square brackets, integer N, the literal "d", one trailing space), followed by the normal one-sentence headline. Example: "[EARNINGS in 5d] Forward P/E 28.4 with revenue +14.2% YoY — premium-but-justified growth profile."
+- 15 ≤ earningsDaysAway ≤ 30: the headline MUST END with " (earnings in {N}d)" — one leading space, parentheses, integer N. Example: "Forward P/E 28.4 with revenue +14.2% YoY — premium-but-justified growth profile (earnings in 22d)."
+- earningsDaysAway > 30 or null: no headline lead/trail constraint.
+- Round N to the nearest whole day. If earningsDaysAway is 0 or negative, treat as 0 ("[EARNINGS in 0d]" — the print is today or already happened today).
+- This rule supersedes the "leads with the most decision-relevant fact" guidance — when earnings is ≤14d the EARNINGS lead IS the most decision-relevant fact.
 
 Direction rules:
 - bullish: growth > 10% YoY AND profitable AND analyst recommendationKey ∈ {buy, strong_buy} AND not extended on price.

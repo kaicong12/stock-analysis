@@ -36,6 +36,13 @@ export async function POST(request: NextRequest, ctx: RouteContext) {
     }
     closedAt = body.closedAt;
   }
+  let ibkrCloseOrderId: string | null = null;
+  if (body.ibkrCloseOrderId !== undefined && body.ibkrCloseOrderId !== null) {
+    if (typeof body.ibkrCloseOrderId !== "string" || !body.ibkrCloseOrderId.trim()) {
+      return Response.json({ error: "ibkrCloseOrderId must be a non-empty string when provided" }, { status: 400 });
+    }
+    ibkrCloseOrderId = body.ibkrCloseOrderId.trim();
+  }
 
   // Idempotency check before mutating: 409 with existing data if already closed.
   const existing = getTrade(id);
@@ -48,6 +55,7 @@ export async function POST(request: NextRequest, ctx: RouteContext) {
     realizedPnl: body.realizedPnl,
     exitReason: body.exitReason.trim(),
     closedAt,
+    ibkrCloseOrderId,
   };
 
   try {

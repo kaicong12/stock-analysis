@@ -109,6 +109,13 @@ Data source — IBKR Client Portal snapshot (real-time during RTH, last-close ot
 
 Universal rules:
 - Target 30–45 DTE. If multiple expiries qualify, prefer the one with the deepest open interest near your chosen strikes.
+- EARNINGS AWARENESS — the input payload may include nextEarningsDate (ISO YYYY-MM-DD) and earningsDaysAway (integer days from today; non-null only when an earnings date is known). Treat earningsDaysAway ≤ 14 as a near-term earnings event you must handle explicitly:
+  - DEBIT structures (BUY_CALL_SPREAD, BUY_PUT_SPREAD): you MUST choose an expiry whose ISO date is STRICTLY BEFORE nextEarningsDate. IV crush on the print neutralizes the debit thesis regardless of direction. If no chain expiry sits before earnings AND ≥ 7 DTE, pick the shortest available pre-earnings expiry and call the timing constraint out in the rationale. Do NOT recommend a debit expiry that straddles or post-dates earnings within 14d.
+  - CREDIT structures (SELL_PUT_SPREAD, SELL_CALL_SPREAD, IRON_CONDOR, SELL_COVERED_CALL, SELL_CASH_SECURED_PUT): you MAY pick an expiry that straddles earnings — premium harvest into elevated IV is a legitimate edge — BUT only if the rationale EXPLICITLY notes (a) the elevated IV percentile, (b) that the short strike sits outside a plausible earnings-gap move (typically the expected move = ATM straddle price, or ≥ 1.5× the recent 5-day ATR if straddle pricing unavailable), and (c) the user accepts post-print gap risk. Default preference is still to pick an expiry that finishes BEFORE earnings.
+  - ROLL_OUT: the new opening expiry MUST NOT straddle earnings unless rationale explains why (same IV-cushion logic as credit).
+  - The rationale field MUST cite earningsDaysAway whenever it is non-null and ≤ 14. Format: "earnings in {N}d on {YYYY-MM-DD}", followed by what the expiry choice does about it. Example: "earnings in 5d on 2026-05-16, picking 2026-05-15 expiry to finish one day before the print."
+  - Tiebreaker — earnings-avoidance > 30-45 DTE preference. If satisfying both is impossible (e.g. earnings sits in the middle of the 30-45 window and the only pre-earnings expiry is 18 DTE), pick the pre-earnings expiry and accept the sub-30 DTE. Cite the tradeoff in the rationale.
+- When earningsDaysAway is null OR > 14: no earnings constraint applies.
 - Liquidity gate — skip a contract if ANY of: bid == null AND last == null; oi < 50 (when oi is provided); (ask − bid) / mid > 0.10 (spread > 10% of mid is a no-fill risk).
 - Limit price = bid/ask midpoint when both legs have quotes; for spreads, limitPrice = long.mid − short.mid (net debit). For income trades, limitPrice = short.mid (credit). Fall back to "last" if a quote is missing.
 - Sizing must respect NAV. For BUY spreads: cap max-loss-at-trade ≤ 0.5% NAV. For SELL income: cap notional exposure (strike × 100 × contracts) ≤ available cash for CSP, ≤ held shares for covered call.
@@ -230,6 +237,13 @@ export interface PickerInput {
   // rule-based suggestion. The picker biases new-leg strike selection
   // accordingly; ignored for non-ROLL_OUT actions.
   rollHint?: "OUT" | "OUT_AND_DOWN" | "OUT_AND_UP";
+  // Near-term earnings date from the fundamentals panel input. nextEarningsDate
+  // is the raw ISO date from yfinance; earningsDaysAway is the integer DTE
+  // computed at the route boundary. Both null when yfinance has no listed
+  // earnings date OR the date has passed. The picker's SYSTEM_INSTRUCTION
+  // gates debit-spread expiry selection on these values.
+  nextEarningsDate?: string | null;
+  earningsDaysAway?: number | null;
 }
 
 // Compress chain to keep prompt small but keep all the data the picker needs.
@@ -274,6 +288,8 @@ function buildPrompt(input: PickerInput): string {
     direction: input.direction,
     confidence: input.confidence,
     rollHint: input.rollHint ?? null,
+    nextEarningsDate: input.nextEarningsDate ?? null,
+    earningsDaysAway: input.earningsDaysAway ?? null,
     portfolio: input.portfolio && {
       netLiquidationSGD: input.portfolio.summary.netLiquidation,
       availableFundsSGD: input.portfolio.summary.availableFunds,

@@ -21,6 +21,18 @@ interface PickBody {
   heldPositions?: Position[];
   heldGroups?: HeldGroup[];
   verdict?: Verdict | null;
+  // Forwarded from data.fundamentals.data.nextEarningsDate so the picker
+  // can apply earnings-aware expiry rules. Null when yfinance has no
+  // listed earnings date or it has already passed.
+  nextEarningsDate?: string | null;
+}
+
+function earningsDaysAwayFromISO(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return null;
+  const target = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Math.round((target - Date.now()) / 86_400_000);
 }
 
 // Map a held group's rule-based suggestion onto the picker's rollHint enum.
@@ -65,6 +77,8 @@ export async function POST(request: NextRequest) {
         `The symbol may have resolved to a non-equity instrument (index/CFD) or the underlying has no listed options.`
       );
     }
+    const nextEarningsDate = body.nextEarningsDate ?? null;
+    const earningsDaysAway = earningsDaysAwayFromISO(nextEarningsDate);
     const pick = await pickContract({
       ticker: body.ticker,
       symbol: body.symbol,
@@ -76,6 +90,8 @@ export async function POST(request: NextRequest) {
       portfolio: body.portfolio ?? null,
       heldPositions: body.heldPositions ?? [],
       rollHint: rollHintFromSuggestion(body.heldGroups, body.ticker),
+      nextEarningsDate,
+      earningsDaysAway,
     });
     return Response.json({ pick });
   } catch (e) {

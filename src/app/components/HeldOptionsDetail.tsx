@@ -1,8 +1,11 @@
 "use client";
 
-import type { HeldGroup, Position } from "../../lib/types";
+import { useState } from "react";
+import type { HeldGroup, OrderLeg, Position } from "../../lib/types";
+import type { JournalStrategy, JournalTradeWithLegs } from "../../lib/journal/types";
 import styles from "../page.module.css";
 import { fmtMoney, fmtNum, fmtSigned } from "./format";
+import { OrderModal, type OrderModalIntent } from "./OrderModal";
 
 const GROUP_LABEL: Record<HeldGroup["kind"], string> = {
   STOCK: "Stock",
@@ -54,6 +57,62 @@ export function HeldOptionsDetail({ groups }: { groups: HeldGroup[] }) {
   );
 }
 
+const HELD_TO_JOURNAL_STRATEGY: Partial<Record<HeldGroup["kind"], JournalStrategy>> = {
+  BULL_PUT_SPREAD: "SELL_PUT_SPREAD",
+  BEAR_CALL_SPREAD: "SELL_CALL_SPREAD",
+  BULL_CALL_SPREAD: "BUY_CALL_SPREAD",
+  BEAR_PUT_SPREAD: "BUY_PUT_SPREAD",
+  IRON_CONDOR: "IRON_CONDOR",
+  COVERED_CALL: "SELL_COVERED_CALL",
+  CSP: "SELL_CASH_SECURED_PUT",
+  LONG_CALL: "LONG_CALL",
+  LONG_PUT: "LONG_PUT",
+  SHORT_CALL: "CUSTOM",
+  SHORT_PUT: "CUSTOM",
+  CUSTOM: "CUSTOM",
+};
+
+// Build the OrderLeg[] needed to close a held option group. Each leg's ratio
+// is the *closing* sign — opposite of the held position's sign (held +n long
+// closes with ratio -1 SELL; held -n short closes with ratio +1 BUY).
+function legsForClose(g: HeldGroup): OrderLeg[] {
+  return g.legs
+    .filter((l) => l.assetClass === "OPT" && l.putOrCall && l.strike != null && l.expiry)
+    .map<OrderLeg>((l) => ({
+      conid: l.conid,
+      side: (l.putOrCall === "C" ? "C" : "P") as "C" | "P",
+      strike: l.strike as number,
+      expiry: l.expiry as string,
+      ratio: l.position > 0 ? -1 : 1,
+      lastPrice: l.mktPrice ?? null,
+    }));
+}
+
+// Try to find an open journal trade whose legs match this held group. We use
+// the conid-set as the matching key — every option position has a unique
+// conid, so a set equality across opt legs is a precise match.
+async function findJournalTradeIdForGroup(g: HeldGroup): Promise<number | null> {
+  try {
+    const res = await fetch(`/api/journal?status=open&ticker=${encodeURIComponent(g.underlying)}`);
+    if (!res.ok) return null;
+    const json = (await res.json()) as { trades: JournalTradeWithLegs[] };
+    const heldConids = new Set(
+      g.legs.filter((l) => l.assetClass === "OPT").map((l) => l.conid),
+    );
+    for (const t of json.trades) {
+      const tradeConids = new Set(t.legs.map((l) => l.conid).filter((c): c is number => c != null));
+      if (tradeConids.size === 0) continue;
+      if (tradeConids.size !== heldConids.size) continue;
+      let match = true;
+      for (const c of tradeConids) if (!heldConids.has(c)) { match = false; break; }
+      if (match) return t.id;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function HeldOptionGroupCard({ group: g }: { group: HeldGroup }) {
   const currency = g.legs[0]?.currency ?? "USD";
   const triggers: { label: string; tone: "bullish" | "bearish" | "neutral" }[] = [];
@@ -61,6 +120,44 @@ function HeldOptionGroupCard({ group: g }: { group: HeldGroup }) {
   if (g.triggers.dteUnder21) triggers.push({ label: `${g.dte} DTE`, tone: "bearish" });
   if (g.triggers.stopBreached) triggers.push({ label: "Stop breached", tone: "bearish" });
   const range = strikeRange(g);
+
+  const [closing, setClosing] = useState(false);
+  const [intent, setIntent] = useState<OrderModalIntent | null>(null);
+
+  async function startClose() {
+    setClosing(true);
+    try {
+      const optLegs = legsForClose(g);
+      if (optLegs.length === 0) return;
+      // Quantity: max absolute position across opt legs (handles spreads with
+      // matched sizing; an unbalanced custom group falls back to the largest).
+      const qty = Math.max(
+        ...g.legs.filter((l) => l.assetClass === "OPT").map((l) => Math.abs(l.position) || 1),
+        1,
+      );
+      // Convert liveClose (positive = receive cash) to signed per-contract
+      // limit: positive = debit-to-pay, negative = credit-to-receive.
+      const defaultLimitPrice = -g.liveClose / qty / 100;
+      const journalTradeId = await findJournalTradeIdForGroup(g);
+      const strategy = HELD_TO_JOURNAL_STRATEGY[g.kind] ?? "CUSTOM";
+      setIntent({
+        kind: "close-held",
+        legs: optLegs,
+        ticker: g.underlying,
+        symbol: g.underlying,
+        strategy,
+        expiry: g.expiry,
+        journalTradeId,
+        defaultLimitPrice,
+        defaultQuantity: qty,
+        // openCredit is the structure-wide $; convert to per-contract net credit
+        // (positive = received on open) for the PnL calc.
+        originalNetCredit: qty > 0 ? g.openCredit / qty / 100 : null,
+      });
+    } finally {
+      setClosing(false);
+    }
+  }
 
   return (
     <div className={styles.heldOptionsCard}>
@@ -115,6 +212,23 @@ function HeldOptionGroupCard({ group: g }: { group: HeldGroup }) {
       </div>
 
       {g.dataIssue && <div className={styles.heldOptionsDataIssue}>{g.dataIssue}</div>}
+
+      <div className={styles.journalActions} style={{ justifyContent: "flex-end", marginTop: 8 }}>
+        <button
+          type="button"
+          className={styles.btnPrimary}
+          onClick={startClose}
+          disabled={closing}
+        >
+          {closing ? "Preparing…" : "Close position"}
+        </button>
+      </div>
+      {intent && (
+        <OrderModal
+          intent={intent}
+          onClose={() => setIntent(null)}
+        />
+      )}
     </div>
   );
 }

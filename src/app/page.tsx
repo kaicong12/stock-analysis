@@ -54,6 +54,9 @@ interface State {
   heldGroups: HeldGroup[];
   panels: Record<PanelKey, PanelState>;
   verdict: Verdict | null;
+  // Surfaced from the fundamentals panel response so we can forward it
+  // to /api/contract-pick. Null when yfinance has no listed earnings date.
+  nextEarningsDate: string | null;
 }
 
 type Action =
@@ -62,7 +65,7 @@ type Action =
   | { type: "submit_error"; message: string }
   | { type: "prep_done"; payload: { ticker: string; symbol: string; snapshot: SnapshotResult; portfolio: Portfolio | null; heldPositions: Position[]; heldGroups: HeldGroup[]; errors: State["errors"] } }
   | { type: "panel_loading"; name: PanelKey }
-  | { type: "panel_done"; name: PanelKey; summary: PanelSummary; error?: string }
+  | { type: "panel_done"; name: PanelKey; summary: PanelSummary; error?: string; nextEarningsDate?: string | null }
   | { type: "verdict_loading" }
   | { type: "verdict_done"; verdict: Verdict }
   | { type: "verdict_error"; message: string }
@@ -89,6 +92,7 @@ const INITIAL: State = {
   heldGroups: [],
   panels: emptyPanels,
   verdict: null,
+  nextEarningsDate: null,
 };
 
 function reducer(state: State, a: Action): State {
@@ -127,6 +131,12 @@ function reducer(state: State, a: Action): State {
     case "panel_done":
       return {
         ...state,
+        // Capture the earnings date when the fundamentals panel finishes —
+        // it's what the contract picker needs for earnings-aware expiry.
+        nextEarningsDate:
+          a.name === "fundamentals" && a.nextEarningsDate !== undefined
+            ? a.nextEarningsDate
+            : state.nextEarningsDate,
         panels: {
           ...state.panels,
           [a.name]: a.error
@@ -240,14 +250,20 @@ export default function Page() {
     }
     dispatch({ type: "prep_done", payload: prep });
 
+    // Fundamentals panel piggybacks the raw nextEarningsDate alongside its
+    // summary so the contract picker can apply earnings-aware expiry rules.
+    let fundamentalsEarningsDate: string | null = null;
     const panelResults = await Promise.allSettled(
       PANELS.map(async (name) => {
-        const r = await postJson<{ name: PanelKey; summary: PanelSummary; error?: string }>(
+        const r = await postJson<{ name: PanelKey; summary: PanelSummary; error?: string; nextEarningsDate?: string | null }>(
           `/api/panel/${name}`,
           { ticker: prep.ticker },
           signal,
         );
-        dispatch({ type: "panel_done", name: r.name, summary: r.summary, error: r.error });
+        if (r.name === "fundamentals" && r.nextEarningsDate !== undefined) {
+          fundamentalsEarningsDate = r.nextEarningsDate;
+        }
+        dispatch({ type: "panel_done", name: r.name, summary: r.summary, error: r.error, nextEarningsDate: r.nextEarningsDate });
         return r;
       }),
     );
@@ -302,6 +318,7 @@ export default function Page() {
             heldPositions: prep.heldPositions,
             heldGroups: prep.heldGroups,
             verdict: verdictRes.verdict,
+            nextEarningsDate: fundamentalsEarningsDate,
           },
           signal,
         );

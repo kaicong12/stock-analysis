@@ -364,6 +364,53 @@ export interface DashboardData {
   errors: { source: string; message: string }[];
 }
 
+// ----- Order placement (IBKR Client Portal) -----
+
+// A leg as sent to the order builder. ratio is signed: +1 = BUY, -1 = SELL.
+// For a covered call the user's stock leg isn't included; just the option leg.
+export interface OrderLeg {
+  conid: number;
+  side: "C" | "P";
+  strike: number;
+  expiry: string;            // ISO YYYY-MM-DD
+  ratio: 1 | -1;             // +1 BUY_TO_OPEN/CLOSE, -1 SELL_TO_OPEN/CLOSE
+  // Per-leg last/mid hint used by the modal to display an initial credit/debit
+  // even when the combo doesn't have a chain quote of its own.
+  lastPrice?: number | null;
+}
+
+// What the user is asking the backend to place. The three intents map to
+// distinct payload shapes inside buildPlacePayload, but share the editable
+// surface (price/qty/tif/outsideRTH).
+export type OrderIntent =
+  | { kind: "open-pick"; pick: ContractPick }   // new entry from contract picker
+  | { kind: "roll"; pick: ContractPick }        // ROLL_OUT (closingLegs + openingLegs)
+  | { kind: "close-held"; legs: OrderLeg[]; strategy: string; ticker: string; expiry: string };
+
+export interface OrderPlaceRequest {
+  intent: OrderIntent;
+  symbol: string;             // underlying symbol, used to resolve underConid for BAG combos
+  limitPrice: number;         // signed net price (per spread). Positive = debit, negative = credit
+  quantity: number;           // contracts
+  tif: "DAY" | "GTC";
+  outsideRTH: boolean;
+}
+
+export interface OrderPlaceResponse {
+  orderId: string;
+  status: string;             // "Submitted" / "PreSubmitted" / "Filled" / ...
+  warnings: string[];         // any warning messages we auto-confirmed
+}
+
+export interface OrderStatus {
+  orderId: string;
+  status: string;             // "Submitted" / "Filled" / "Cancelled" / ...
+  avgFillPrice: number | null;
+  filledQuantity: number;
+  totalQuantity: number;
+}
+
+// Legacy interface, kept for compatibility — prefer OrderPlaceRequest above.
 export interface OrderPayload {
   accountId: string;
   symbol: string;
