@@ -1,0 +1,108 @@
+.modalCardCalendar {
+  display: flex;
+  flex-direction: column;
+  max-width: 600px;
+  width: 100%;
+}
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.monthSelect {
+  font-size: 16px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  background: var(--surface-container);
+  color: var(--on-surface);
+  cursor: pointer;
+  outline: none;
+}
+
+
+.summaryBox {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--outline-variant);
+  margin-bottom: 16px;
+}
+
+.summaryLabel {
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  margin-bottom: 4px;
+}
+
+.summaryValue {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.gain { color: var(--bullish); }
+.loss { color: var(--bearish); }
+.neutral { color: var(--on-surface-variant); }
+
+.gridHeader {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 12px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  width: 100%;
+}
+
+.weekday {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--on-surface-variant);
+  text-transform: uppercase;
+}
+
+.cell {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--surface-container-low);
+  border: 1px solid var(--surface-container-high);
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 8px;
+}
+
+.cell:hover {
+  background: var(--surface-container);
+  border-color: var(--outline-variant);
+  transform: translateY(-2px);
+}
+
+.emptyCell {
+  aspect-ratio: 1;
+  background: transparent;
+}
+
+.dayNumber {
+  font-size: 15px;
+  color: var(--on-surface);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.dayPnl {
+  font-size: 13px;
+  font-weight: 600;
+}
