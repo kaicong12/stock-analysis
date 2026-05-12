@@ -64,15 +64,6 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
     }
     patch.dteAtEntry = body.dteAtEntry;
   }
-  if (body.ivRank !== undefined) {
-    if (body.ivRank === null) {
-      patch.ivRank = null;
-    } else if (typeof body.ivRank === "number" && Number.isFinite(body.ivRank) && body.ivRank >= 0 && body.ivRank <= 100) {
-      patch.ivRank = body.ivRank;
-    } else {
-      return Response.json({ error: "ivRank must be null or in [0, 100]" }, { status: 400 });
-    }
-  }
   if (body.netCredit !== undefined) {
     if (typeof body.netCredit !== "number" || !Number.isFinite(body.netCredit)) {
       return Response.json({ error: "netCredit must be a number" }, { status: 400 });

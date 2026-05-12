@@ -24,13 +24,13 @@ export function CalendarButton() {
     <>
       <button
         type="button"
-        className={pageStyles.glossaryBtn}
+        className={pageStyles.railActionBtn}
         onClick={() => setOpen(true)}
         aria-label="Open PnL calendar"
       >
-        <span className={pageStyles.glossaryBtnIcon}>🗓</span>
-        <span className={pageStyles.glossaryBtnLabel}>PnL Calendar</span>
-        <span className={pageStyles.glossaryBtnHint}>Daily breakdown</span>
+        <span className={pageStyles.railActionBtnIcon}>🗓</span>
+        <span className={pageStyles.railActionBtnLabel}>PnL Calendar</span>
+        <span className={pageStyles.railActionBtnHint}>Daily breakdown</span>
       </button>
       {open && <CalendarModal onClose={() => setOpen(false)} />}
     </>

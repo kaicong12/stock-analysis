@@ -114,15 +114,6 @@ export async function POST(request: NextRequest) {
   if (typeof body.mgmtLoss !== "string" || !body.mgmtLoss.trim()) {
     return Response.json({ error: "mgmtLoss is required" }, { status: 400 });
   }
-  const ivRank =
-    body.ivRank === null || body.ivRank === undefined
-      ? null
-      : typeof body.ivRank === "number" && Number.isFinite(body.ivRank) && body.ivRank >= 0 && body.ivRank <= 100
-        ? body.ivRank
-        : NaN;
-  if (Number.isNaN(ivRank)) {
-    return Response.json({ error: "ivRank must be null or a number in [0, 100]" }, { status: 400 });
-  }
   const legs = parseLegs(body.legs);
   if (!legs || legs.length === 0) {
     return Response.json({ error: "legs must be a non-empty array of {side, action, strike, deltaAtEntry, conid}" }, { status: 400 });
@@ -140,7 +131,6 @@ export async function POST(request: NextRequest) {
     strategy: body.strategy,
     expiry: body.expiry,
     dteAtEntry: body.dteAtEntry,
-    ivRank,
     netCredit: body.netCredit,
     maxRisk: body.maxRisk,
     contracts: body.contracts,

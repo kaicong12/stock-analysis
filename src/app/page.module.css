@@ -957,8 +957,8 @@
   font-style: italic;
 }
 
-/* Left-rail glossary button. */
-.glossaryBtn {
+/* Left-rail action button (used by Journal, Calendar, etc.). */
+.railActionBtn {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -973,11 +973,11 @@
   width: 100%;
   transition: border-color 120ms ease, background 120ms ease;
 }
-.glossaryBtn:hover {
+.railActionBtn:hover {
   border-color: var(--tertiary);
   background: var(--surface-container-high);
 }
-.glossaryBtnIcon {
+.railActionBtnIcon {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
@@ -990,13 +990,13 @@
   font-weight: 700;
   font-size: 13px;
 }
-.glossaryBtnLabel {
+.railActionBtnLabel {
   flex: 1;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--on-surface);
 }
-.glossaryBtnHint {
+.railActionBtnHint {
   font-size: 10.5px;
   color: var(--on-surface-variant);
   font-variant-numeric: tabular-nums;
@@ -1268,52 +1268,6 @@
 .btnDanger {
   border-color: var(--bearish);
   color: var(--bearish);
-}
-
-/* Glossary list inside the modal. */
-.glossaryList {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin-top: 4px;
-}
-.glossaryItem {
-  display: grid;
-  grid-template-columns: 56px 1fr;
-  gap: 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius);
-  background: var(--surface-container-low);
-}
-.glossarySym {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--tertiary);
-  text-align: center;
-  align-self: center;
-  font-variant-numeric: tabular-nums;
-}
-.glossaryBody {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.glossaryName {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--on-surface);
-}
-.glossaryBlurb {
-  font-size: 12.5px;
-  color: var(--on-surface);
-  line-height: 1.4;
-}
-.glossaryDetail {
-  font-size: 12px;
-  color: var(--on-surface-variant);
-  line-height: 1.55;
 }
 
 @media (max-width: 1024px) {

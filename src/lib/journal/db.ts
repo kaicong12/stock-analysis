@@ -15,7 +15,6 @@ interface TradeRow {
   status: "open" | "closed";
   expiry: string;
   dte_at_entry: number;
-  iv_rank: number | null;
   net_credit: number;
   max_risk: number;
   contracts: number;
@@ -49,7 +48,6 @@ function rowToTrade(r: TradeRow): JournalTrade {
     status: r.status,
     expiry: r.expiry,
     dteAtEntry: r.dte_at_entry,
-    ivRank: r.iv_rank,
     netCredit: r.net_credit,
     maxRisk: r.max_risk,
     contracts: r.contracts,
@@ -118,18 +116,17 @@ export function createTrade(input: JournalTradeInput): JournalTradeWithLegs {
   const result = db.transaction(() => {
     const insertTrade = db.prepare(`
       INSERT INTO journal_trades (
-        ticker, strategy, status, expiry, dte_at_entry, iv_rank,
+        ticker, strategy, status, expiry, dte_at_entry,
         net_credit, max_risk, contracts, thesis, mgmt_profit, mgmt_loss,
         ibkr_open_order_id,
         created_at, updated_at
-      ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = insertTrade.run(
       input.ticker,
       input.strategy,
       input.expiry,
       input.dteAtEntry,
-      input.ivRank,
       input.netCredit,
       input.maxRisk,
       input.contracts,
@@ -165,7 +162,6 @@ export function updateTrade(
     strategy: "strategy",
     expiry: "expiry",
     dteAtEntry: "dte_at_entry",
-    ivRank: "iv_rank",
     netCredit: "net_credit",
     maxRisk: "max_risk",
     contracts: "contracts",

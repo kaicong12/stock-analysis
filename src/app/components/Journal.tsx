@@ -47,13 +47,13 @@ export function JournalButton() {
     <>
       <button
         type="button"
-        className={styles.glossaryBtn}
+        className={styles.railActionBtn}
         onClick={() => setOpen(true)}
         aria-label="Open trade journal"
       >
-        <span className={styles.glossaryBtnIcon}>J</span>
-        <span className={styles.glossaryBtnLabel}>Trade Journal</span>
-        <span className={styles.glossaryBtnHint}>Phase A · Phase B</span>
+        <span className={styles.railActionBtnIcon}>J</span>
+        <span className={styles.railActionBtnLabel}>Trade Journal</span>
+        <span className={styles.railActionBtnHint}>Phase A · Phase B</span>
       </button>
       {open && <JournalModal onClose={() => setOpen(false)} />}
     </>
@@ -236,7 +236,6 @@ function TradeRow(props: {
         </div>
         <div className={styles.journalTradeMeta}>
           {isOpen ? "OPEN" : "CLOSED"} · {t.dteAtEntry} DTE
-          {t.ivRank !== null ? ` · IV rank ${t.ivRank}` : ""}
         </div>
       </div>
       <div className={styles.journalSectionLabel}>
@@ -362,7 +361,6 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
   const [ticker, setTicker] = useState("");
   const [strategy, setStrategy] = useState<JournalStrategy>("SELL_PUT_SPREAD");
   const [expiry, setExpiry] = useState("");
-  const [ivRank, setIvRank] = useState<string>("");
   const [netCredit, setNetCredit] = useState<string>("");
   const [maxRisk, setMaxRisk] = useState<string>("");
   const [contracts, setContracts] = useState<string>("1");
@@ -482,12 +480,6 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
     if (!Number.isFinite(nc)) return setErr("netCredit must be a number");
     if (mr === null || !Number.isFinite(mr) || mr <= 0) return setErr("maxRisk is required and must be > 0");
     if (!Number.isInteger(ct) || ct <= 0) return setErr("contracts must be a positive integer");
-    let ivRankNum: number | null = null;
-    if (ivRank.trim()) {
-      const v = Number(ivRank);
-      if (!Number.isFinite(v) || v < 0 || v > 100) return setErr("ivRank must be 0-100");
-      ivRankNum = v;
-    }
     let legsParsed;
     try {
       legsParsed = legs.map((l) => {
@@ -510,7 +502,6 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
           strategy,
           expiry,
           dteAtEntry: dteFromExpiry(expiry),
-          ivRank: ivRankNum,
           netCredit: nc,
           maxRisk: mr,
           contracts: ct,
@@ -554,9 +545,6 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
       </label>
       <label className={styles.journalField}>Contracts
         <input className={styles.journalInput} type="number" min={1} value={contracts} onChange={(e) => setContracts(e.target.value)} />
-      </label>
-      <label className={styles.journalField}>IV rank / percentile (0-100)
-        <input className={styles.journalInput} type="number" min={0} max={100} value={ivRank} onChange={(e) => setIvRank(e.target.value)} />
       </label>
       <label className={styles.journalField}>Net credit ($/spread)
         <input className={styles.journalInput} type="number" step="0.01" value={netCredit} onChange={(e) => setNetCredit(e.target.value)} />
@@ -608,7 +596,7 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
             <span className={styles.journalLegsLabel} style={{ fontSize: 10, borderBottom: "1px dotted var(--tertiary)" }}>Net Delta</span>
             <div className={styles.tooltipContent}>
               {strategy.includes("SELL") || strategy === "IRON_CONDOR" ? (
-                "For credit spreads: if Delta is high (> 0.30), you aren't being compensated enough for the risk. Look for higher IV Rank."
+                "For credit spreads: if Delta is high (> 0.30), you aren't being compensated enough for the risk."
               ) : (
                 "For debit trades: Higher delta (0.50-0.60) is often preferred as it means more intrinsic value and faster gains on moves."
               )}

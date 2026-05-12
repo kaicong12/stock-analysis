@@ -88,6 +88,9 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       ALTER TABLE journal_trades ADD COLUMN ibkr_close_order_id TEXT;
     `);
   },
+  (db) => {
+    db.exec(`ALTER TABLE journal_trades DROP COLUMN iv_rank;`);
+  },
 ];
 
 function runMigrations(db: Database.Database): void {

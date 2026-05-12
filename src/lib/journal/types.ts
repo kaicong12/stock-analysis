@@ -30,7 +30,6 @@ export interface JournalTradeInput {
   strategy: JournalStrategy;
   expiry: string;          // ISO YYYY-MM-DD
   dteAtEntry: number;
-  ivRank: number | null;   // 0..100
   netCredit: number;       // $ per spread
   maxRisk: number;         // $ per spread
   contracts: number;
@@ -48,7 +47,6 @@ export interface JournalTrade {
   status: JournalStatus;
   expiry: string;
   dteAtEntry: number;
-  ivRank: number | null;
   netCredit: number;
   maxRisk: number;
   contracts: number;

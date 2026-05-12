@@ -563,7 +563,6 @@ function JournalPrefillStage({
           strategy,
           expiry: expiryIso,
           dteAtEntry: dte,
-          ivRank: null,
           netCredit: nc,
           maxRisk: mr,
           contracts: quantity,

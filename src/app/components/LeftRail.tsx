@@ -4,7 +4,6 @@ import styles from "../page.module.css";
 import type { HeldGroup, Portfolio } from "../../lib/types";
 import { isOptionGroup } from "../../lib/positions/types";
 import { fmtMoney, fmtNum, fmtSigned } from "./format";
-import { GreeksGlossaryButton } from "./GreeksGlossary";
 import { JournalButton } from "./Journal";
 import { CalendarButton } from "./Calendar";
 
@@ -65,7 +64,6 @@ export function LeftRail({
       <PortfolioSnapshot portfolio={portfolio} />
       <StocksCard groups={stocks} searchedTicker={searchedTicker} onPickTicker={onPickTicker} />
       <OptionsCard groups={options} searchedTicker={searchedTicker} onPickTicker={onPickTicker} />
-      <GreeksGlossaryButton />
       <JournalButton />
       <CalendarButton />
     </aside>
