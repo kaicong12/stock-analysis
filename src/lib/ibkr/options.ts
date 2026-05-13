@@ -387,6 +387,10 @@ export interface NarrowChainOptions {
   expiryMaxDays?: number;
   maxExpiries?: number;
   strikePctWindow?: number;
+  /** % below spot to include (e.g. 0.25 = 25% below). Overrides strikePctWindow for lower bound. */
+  lowerPctWindow?: number;
+  /** % above spot to include (e.g. 0.08 = 8% above). Overrides strikePctWindow for upper bound. */
+  upperPctWindow?: number;
   exchange?: string;
 }
 
@@ -402,6 +406,8 @@ export async function getNarrowOptionChain(
     strikePctWindow = 0.15,
     exchange = "SMART",
   } = options;
+  const lowerWindow = options.lowerPctWindow ?? strikePctWindow;
+  const upperWindow = options.upperPctWindow ?? strikePctWindow;
 
   if (!spot || spot <= 0) throw new Error(`getNarrowOptionChain: invalid spot ${spot} for ${symbol}`);
 
@@ -427,8 +433,8 @@ export async function getNarrowOptionChain(
 
   if (!monthsInWindow.length) return { symbol, spot, expiries: [] };
 
-  const minStrike = spot * (1 - strikePctWindow);
-  const maxStrike = spot * (1 + strikePctWindow);
+  const minStrike = spot * (1 - lowerWindow);
+  const maxStrike = spot * (1 + upperWindow);
 
   // Phase 1: fetch strikes per month (DB hit or one /secdef/strikes call).
   const strikesPerMonth = new Map<string, { call: number[]; put: number[] }>();

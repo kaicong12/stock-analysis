@@ -31,6 +31,34 @@ function fmtIso(iso: string): string {
   return `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
 }
 
+const SPREAD_KINDS = new Set<HeldGroup["kind"]>([
+  "BULL_PUT_SPREAD", "BEAR_PUT_SPREAD", "BULL_CALL_SPREAD", "BEAR_CALL_SPREAD", "IRON_CONDOR",
+]);
+
+// Debit spreads have openCredit < 0 (you paid premium on open); max loss is
+// simply the debit paid. Credit spreads have openCredit > 0 and max loss is
+// the spread width minus the credit, scaled by contracts.
+function computeMaxLoss(g: HeldGroup): number | null {
+  if (!SPREAD_KINDS.has(g.kind)) return null;
+  const optLegs = g.legs.filter((l) => l.assetClass === "OPT" && l.strike != null);
+  if (optLegs.length < 2) return null;
+  if (g.openCredit < 0) return -g.openCredit;
+  const qty = Math.max(...optLegs.map((l) => Math.abs(l.position)), 1);
+  if (g.kind === "IRON_CONDOR") {
+    const putStrikes = optLegs.filter((l) => l.putOrCall === "P").map((l) => l.strike!).sort((a, b) => a - b);
+    const callStrikes = optLegs.filter((l) => l.putOrCall === "C").map((l) => l.strike!).sort((a, b) => a - b);
+    if (putStrikes.length < 2 || callStrikes.length < 2) return null;
+    const maxWidth = Math.max(
+      putStrikes[putStrikes.length - 1] - putStrikes[0],
+      callStrikes[callStrikes.length - 1] - callStrikes[0],
+    );
+    return maxWidth * qty * 100 - g.openCredit;
+  }
+  const strikes = optLegs.map((l) => l.strike!).sort((a, b) => a - b);
+  const spreadWidth = strikes[strikes.length - 1] - strikes[0];
+  return spreadWidth * qty * 100 - g.openCredit;
+}
+
 function strikeRange(g: HeldGroup): string {
   const strikes = g.legs
     .filter((l) => l.assetClass === "OPT")
@@ -43,7 +71,10 @@ function strikeRange(g: HeldGroup): string {
 }
 
 export function HeldOptionsDetail({ groups }: { groups: HeldGroup[] }) {
-  const optionGroups = groups.filter((g) => g.kind !== "STOCK");
+  const optionGroups = groups
+    .filter((g) => g.kind !== "STOCK")
+    .slice()
+    .sort((a, b) => a.dte - b.dte);
   if (optionGroups.length === 0) return null;
   return (
     <section className={styles.heldOptionsDetail}>
@@ -120,6 +151,8 @@ function HeldOptionGroupCard({ group: g }: { group: HeldGroup }) {
   if (g.triggers.dteUnder21) triggers.push({ label: `${g.dte} DTE`, tone: "bearish" });
   if (g.triggers.stopBreached) triggers.push({ label: "Stop breached", tone: "bearish" });
   const range = strikeRange(g);
+
+  const maxLoss = computeMaxLoss(g);
 
   const [closing, setClosing] = useState(false);
   const [intent, setIntent] = useState<OrderModalIntent | null>(null);
@@ -201,6 +234,18 @@ function HeldOptionGroupCard({ group: g }: { group: HeldGroup }) {
             {g.pnlPctOfMax !== null ? ` (${(g.pnlPctOfMax * 100).toFixed(1)}%)` : ""}
           </span>
         </span>
+        {maxLoss !== null && (
+          <span className={`${styles.adjChip} ${styles.bearish}`}>
+            <span className={styles.adjChipLabel}>Max loss</span>
+            <span className={styles.adjChipValue + " tabular-nums"}>-{fmtMoney(maxLoss, currency)}</span>
+          </span>
+        )}
+        {maxLoss !== null && maxLoss > 0 && g.openCredit > 0 && (
+          <span className={styles.adjChip}>
+            <span className={styles.adjChipLabel}>ROC</span>
+            <span className={styles.adjChipValue + " tabular-nums"}>{(g.openCredit / maxLoss * 100).toFixed(1)}%</span>
+          </span>
+        )}
         <span className={styles.adjChip}>
           <span className={styles.adjChipLabel}>DTE</span>
           <span className={styles.adjChipValue + " tabular-nums"}>{g.dte}</span>

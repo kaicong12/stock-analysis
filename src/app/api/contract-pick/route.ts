@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { pickContract, pickerEligible } from "../../../lib/gemini/contract-picker";
-import { getNarrowOptionChain } from "../../../lib/ibkr/options";
+import { getNarrowOptionChain, type NarrowChainOptions } from "../../../lib/ibkr/options";
 import type {
   HeldGroup,
   Portfolio,
@@ -33,6 +33,32 @@ function earningsDaysAwayFromISO(iso: string | null | undefined): number | null 
   if (!m) return null;
   const target = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return Math.round((target - Date.now()) / 86_400_000);
+}
+
+// Widen the strike window asymmetrically toward the side the strategy cares about.
+// Keeps the irrelevant side narrow to avoid blowing the snapshot conid budget.
+function chainWindowForAction(
+  action: string,
+  rollHint?: "OUT" | "OUT_AND_DOWN" | "OUT_AND_UP",
+): Pick<NarrowChainOptions, "lowerPctWindow" | "upperPctWindow"> {
+  switch (action) {
+    case "SELL_PUT_SPREAD":
+    case "SELL_CASH_SECURED_PUT":
+    case "BUY_PUT_SPREAD":
+      return { lowerPctWindow: 0.25, upperPctWindow: 0.08 };
+    case "SELL_CALL_SPREAD":
+    case "SELL_COVERED_CALL":
+    case "BUY_CALL_SPREAD":
+      return { lowerPctWindow: 0.08, upperPctWindow: 0.25 };
+    case "IRON_CONDOR":
+      return { lowerPctWindow: 0.20, upperPctWindow: 0.20 };
+    case "ROLL_OUT":
+      if (rollHint === "OUT_AND_DOWN") return { lowerPctWindow: 0.30, upperPctWindow: 0.08 };
+      if (rollHint === "OUT_AND_UP") return { lowerPctWindow: 0.08, upperPctWindow: 0.30 };
+      return { lowerPctWindow: 0.20, upperPctWindow: 0.20 };
+    default:
+      return { lowerPctWindow: 0.15, upperPctWindow: 0.15 };
+  }
 }
 
 // Map a held group's rule-based suggestion onto the picker's rollHint enum.
@@ -70,7 +96,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const spot = body.snapshot?.lastPrice ?? 0;
-    const chain = await getNarrowOptionChain(body.symbol, spot);
+    const rollHint = rollHintFromSuggestion(body.heldGroups, body.ticker);
+    const chainWindow = chainWindowForAction(body.verdict.derivatives.action, rollHint);
+    const chain = await getNarrowOptionChain(body.symbol, spot, chainWindow);
     if (!chain.expiries.length) {
       throw new Error(
         `No option chain available for ${body.symbol} — IBKR returned no expiries in the 20-60 DTE window. ` +
@@ -89,7 +117,7 @@ export async function POST(request: NextRequest) {
       chain,
       portfolio: body.portfolio ?? null,
       heldPositions: body.heldPositions ?? [],
-      rollHint: rollHintFromSuggestion(body.heldGroups, body.ticker),
+      rollHint,
       nextEarningsDate,
       earningsDaysAway,
     });

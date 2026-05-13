@@ -177,18 +177,19 @@ function OptionsCard({
   searchedTicker: string;
   onPickTicker: (t: string) => void;
 }) {
+  const sortedGroups = groups.slice().sort((a, b) => a.dte - b.dte);
   return (
     <div className={styles.railCard}>
       <div className={styles.railCardHeader}>
         <span className={styles.railCardTitle}>Options</span>
         <span className={styles.railCardTitle}>{groups.length}</span>
       </div>
-      {groups.length === 0 ? (
+      {sortedGroups.length === 0 ? (
         <div className={styles.railCardSub}>None</div>
       ) : (
         <div className={`${styles.railScroll} scrollbar-slim`}>
           <div className={styles.railRowList}>
-            {groups.map((g, i) => {
+            {sortedGroups.map((g, i) => {
               const isFocus = g.underlying === searchedTicker.toUpperCase();
               const triggerIcon = g.triggers.pt50Hit
                 ? "✓"

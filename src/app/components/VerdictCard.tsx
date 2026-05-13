@@ -27,6 +27,15 @@ import { OrderModal, type OrderModalIntent } from "./OrderModal";
 type Tone = "bullish" | "bearish" | "neutral";
 type IconCmp = (props: { className?: string }) => React.ReactElement;
 
+// Buckets mirror synth.ts: 50 = coin-flip, >75 = strong, 90+ = rare.
+function confidenceInterpretation(c: number): string {
+  if (c >= 90) return "Rare — overwhelming alignment, used sparingly";
+  if (c >= 75) return "Strong conviction — clear thesis with corroboration";
+  if (c >= 65) return "Decent conviction — multiple panels aligned";
+  if (c >= 55) return "Weak lean — directional signal present but not strong";
+  return "Coin-flip — panels disagree, no edge";
+}
+
 const STOCK_ACTION_META: Record<StockAction, { label: string; baseIcon: IconCmp }> = {
   OPEN: { label: "Open Position", baseIcon: IconArrowUp },
   INCREASE: { label: "Increase", baseIcon: IconArrowUp },
@@ -99,6 +108,7 @@ export function VerdictCard({ data, isPickLoading = false, pickError = null }: {
       <div className={styles.confidenceBlock}>
         <div className={styles.confidenceLabel}>Confidence</div>
         <div className={styles.confidenceValue + " font-display"}>{v.confidence}%</div>
+        <div className={styles.confidenceInterpretation}>{confidenceInterpretation(v.confidence)}</div>
         <div className={styles.confidenceTrack}><div className={styles.confidenceFill} style={{ width: `${Math.max(2, Math.min(100, v.confidence))}%` }} /></div>
       </div>
 
@@ -343,6 +353,7 @@ function ContractPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPic
             : "Live quotes unavailable for these strikes — economics will populate during US RTH (9:30 AM – 4:00 PM ET)."}
         </div>
       )}
+      <EarningsBanner pick={pick} />
       <div className={styles.contractLegs}>
         {pick.longLeg && <ContractLegRow leg={pick.longLeg} side="BUY" />}
         {pick.shortLeg && <ContractLegRow leg={pick.shortLeg} side={isSpread ? "SELL" : "SELL"} />}
@@ -367,6 +378,15 @@ function ContractPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPic
           tone="bearish"
         />
         <Metric
+          label="ROC"
+          value={
+            quoted && pick.maxLoss > 0
+              ? `${((pick.maxProfit / pick.maxLoss) * 100).toFixed(1)}%`
+              : dash
+          }
+          tone="neutral"
+        />
+        <Metric
           label="Breakeven"
           value={quoted ? `$${pick.breakeven.toFixed(2)}` : dash}
           tone="neutral"
@@ -389,6 +409,13 @@ function ContractPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPic
             type="button"
             className={styles.btnPrimary}
             onClick={() => setModalOpen(true)}
+            disabled={pick.earningsInWindow === true}
+            title={
+              pick.earningsInWindow === true
+                ? "Chosen expiry straddles an earnings print — order disabled for conservative profile."
+                : undefined
+            }
+            style={pick.earningsInWindow === true ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
           >
             Place order
           </button>
@@ -433,6 +460,7 @@ function RollPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPick; v
           ))}
         </div>
       </div>
+      <EarningsBanner pick={pick} />
       <div className={styles.contractMetrics}>
         <Metric
           label="Net Credit"
@@ -465,9 +493,94 @@ function RollPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPick; v
   );
 }
 
+// Per-leg quote shown next to each leg row. The spread economics elsewhere on
+// the card use the executable mid = (bid + ask) / 2, falling back to bid, ask,
+// then last. Showing `last` here is misleading on OTM strikes where last is
+// often hours stale while bid/ask are live — the user can't reconcile
+// "shortLast − longLast" against the credit. Match the picker's pricing
+// convention so the math adds up visibly.
+// Banner that always renders the earnings-vs-trade-window status on a pick.
+// Conservative trader requirement: be FULLY OUT ≥ 2 days before earnings.
+// - No earnings in fundamentals → neutral chip ("No earnings in fundamentals").
+// - Earnings set + chosen expiry preEarningsSafe → green chip showing date,
+//   days away, and that the expiry finishes before the print.
+// - Earnings set + chosen expiry STRADDLES the print → red chip; Place Order
+//   button is also disabled upstream.
+function EarningsBanner({ pick }: { pick: ContractPick }) {
+  const date = pick.nextEarningsDate ?? null;
+  const days = pick.earningsDaysAway ?? null;
+  // No earnings data — neutral one-liner so the user always sees a status.
+  if (date == null) {
+    return (
+      <div
+        style={{
+          fontSize: 11,
+          color: "var(--on-surface-variant)",
+          marginTop: 2,
+          paddingLeft: 2,
+        }}
+      >
+        Earnings: not in fundamentals — no earnings constraint applies.
+      </div>
+    );
+  }
+  // Pull the chosen expiry off whichever leg the picker populated.
+  const expiry =
+    pick.shortLeg?.expiry ??
+    pick.longLeg?.expiry ??
+    pick.shortPutLeg?.expiry ??
+    pick.longPutLeg?.expiry ??
+    pick.rollPlan?.openingLegs?.[0]?.expiry ??
+    null;
+  const inWindow = pick.earningsInWindow === true;
+  const bg = inWindow ? "rgba(239,68,68,0.10)" : "rgba(34,197,94,0.08)";
+  const border = inWindow ? "var(--bearish)" : "var(--bullish)";
+  const fg = inWindow ? "var(--bearish)" : "var(--on-surface)";
+  const daysStr = days != null ? `${days}d away` : "date set";
+  const expiryStr = expiry ?? "—";
+  const headline = inWindow
+    ? `Earnings ${date} (${daysStr}) — expiry ${expiryStr} STRADDLES the print`
+    : `Earnings ${date} (${daysStr}) — expiry ${expiryStr} finishes ≥ 2d before`;
+  const sub = inWindow
+    ? "Conservative profile: order disabled. No pre-earnings expiry available in the chain (or chain edge limited)."
+    : `Buffer satisfied: trade exits before ${pick.earningsBufferDate ?? date}.`;
+  return (
+    <div
+      style={{
+        background: bg,
+        border: `1px solid ${border}`,
+        borderRadius: 4,
+        padding: "8px 10px",
+        marginTop: 6,
+        marginBottom: 2,
+        fontSize: 11.5,
+        color: fg,
+        lineHeight: 1.4,
+      }}
+    >
+      <div style={{ fontWeight: 600 }}>{headline}</div>
+      <div style={{ fontSize: 10.5, color: "var(--on-surface-variant)", marginTop: 2 }}>
+        {sub}
+      </div>
+    </div>
+  );
+}
+
+function executableLegPrice(leg: ContractLeg): { price: number | null; source: "mid" | "bid" | "ask" | "last" } {
+  const hasBid = leg.bid != null && leg.bid > 0;
+  const hasAsk = leg.ask != null && leg.ask > 0;
+  if (hasBid && hasAsk) return { price: ((leg.bid as number) + (leg.ask as number)) / 2, source: "mid" };
+  if (hasBid) return { price: leg.bid, source: "bid" };
+  if (hasAsk) return { price: leg.ask, source: "ask" };
+  if (leg.last != null) return { price: leg.last, source: "last" };
+  return { price: null, source: "last" };
+}
+
 function ContractLegRow({ leg, side }: { leg: ContractLeg; side: "BUY" | "SELL" | "OPEN" | "CLOSE" }) {
   const sideCls =
     side === "BUY" || side === "OPEN" ? styles.legBuy : styles.legSell;
+  const { price, source } = executableLegPrice(leg);
+  const suffix = source === "mid" ? "" : ` (${source})`;
   return (
     <div className={styles.contractLeg}>
       <span className={styles.legSide + " " + sideCls}>{side}</span>
@@ -475,8 +588,17 @@ function ContractLegRow({ leg, side }: { leg: ContractLeg; side: "BUY" | "SELL" 
       {leg.delta !== null && leg.delta !== undefined && (
         <span className={styles.legGreek + " tabular-nums"}>Δ {leg.delta.toFixed(2)}</span>
       )}
-      {leg.last !== null && leg.last !== undefined && (
-        <span className={styles.legPrice + " tabular-nums"}>${leg.last.toFixed(2)}</span>
+      {price !== null && (
+        <span
+          className={styles.legPrice + " tabular-nums"}
+          title={
+            source === "mid"
+              ? `Bid/ask mid: ($${leg.bid?.toFixed(2)} + $${leg.ask?.toFixed(2)}) / 2 = $${price.toFixed(2)}`
+              : `${source} price (no bid/ask mid available)`
+          }
+        >
+          ${price.toFixed(2)}{suffix}
+        </span>
       )}
     </div>
   );

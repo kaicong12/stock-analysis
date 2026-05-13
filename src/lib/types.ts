@@ -230,6 +230,11 @@ export interface PositionAdjustment {
   stop?: string;
   target?: string;
   timeframe?: string;
+  // Machine-readable size emitted by the synth model. The server uses these
+  // to compute the actual % NAV and append a deterministic sizing footer to
+  // `instruction`. The model is no longer trusted to write "~X% NAV" prose.
+  sizeShares?: number;
+  sizeContracts?: number;
 }
 
 export interface ContractLeg {
@@ -239,6 +244,13 @@ export interface ContractLeg {
   strike: number;
   expiry: string;            // ISO date
   last: number | null;
+  // Live bid/ask from the chain snapshot. The contract picker's economics use
+  // (bid+ask)/2 as the executable mid — these fields exist so the UI can show
+  // the same mid on the leg row (otherwise `last` can be stale on OTM strikes
+  // and the user sees "$2.20 − $1.29 = $0.91" while the spread credit is $2.10
+  // from the live bid/ask mid).
+  bid: number | null;
+  ask: number | null;
   iv: number | null;
   delta: number | null;
   theta: number | null;
@@ -288,6 +300,16 @@ export interface ContractPick {
   quotesAvailable: boolean;
   ivPercentileNote: string;  // e.g. "IV pct 78 — selling premium favored"
   rationale: string;         // 1-2 sentences
+  // Earnings-in-window flags. Server-computed in the picker after the model
+  // has chosen the expiry: did fundamentals carry an earnings date, and does
+  // the chosen expiry land at or after `nextEarningsDate − 2 days` (the
+  // conservative "be out 2 days before earnings" buffer)? The UI surfaces a
+  // warning when straddling; verdict generation may even refuse to recommend
+  // a credit-spread trade in that case.
+  nextEarningsDate?: string | null;     // raw ISO from fundamentals, or null
+  earningsDaysAway?: number | null;     // integer days from today, or null
+  earningsBufferDate?: string | null;   // nextEarningsDate − 2 days (ISO)
+  earningsInWindow?: boolean;           // true = chosen expiry straddles the print
 }
 
 export interface SleeveVerdict<A extends string> {

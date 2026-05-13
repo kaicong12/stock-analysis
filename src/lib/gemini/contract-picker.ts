@@ -107,15 +107,31 @@ Data source — IBKR Client Portal snapshot (real-time during RTH, last-close ot
 - iv (option-level implied vol %), oi, volume, last, bid, ask are also provided. If volume / oi / iv come back null on a contract (common outside RTH or for very-far-OTM strikes), fall back to strike-vs-spot moneyness for that one contract.
 - Use bid/ask midpoint when both are present; fall back to "last" otherwise.
 
+Chain constraints — the chain payload is deliberately narrow and ASYMMETRIC by strategy:
+- STRIKE WINDOW: the server widens the side your strategy needs and narrows the irrelevant side. Approximate windows by action:
+  - SELL_PUT_SPREAD / SELL_CASH_SECURED_PUT / BUY_PUT_SPREAD: lower=25% below spot, upper=8% above
+  - SELL_CALL_SPREAD / SELL_COVERED_CALL / BUY_CALL_SPREAD: lower=8% below spot, upper=25% above
+  - IRON_CONDOR: ±20% symmetric
+  - ROLL_OUT: depends on rollHint — OUT_AND_DOWN widens lower to 30%, OUT_AND_UP widens upper to 30%, plain OUT is ±20%
+  Strikes outside the relevant window for your strategy WILL NOT appear in the chain. If your delta target requires a strike beyond the available band (rare), pick the furthest available strike, note it is chain-edge limited, and confirm the delta is still within your target range before proceeding.
+- EXPIRY WINDOW: only expiries between 20 and 60 DTE are included, capped at 3 expiry dates. If your preferred expiry (e.g. a pre-earnings date) falls outside this window, pick the nearest available expiry and explain the tradeoff in the rationale.
+- Consequence: when IV is very low, the 15–20 delta strike may sit close to the wide edge. Check whether the strike you chose is near the edge — if so, flag it.
+
 Universal rules:
 - Target 30–45 DTE. If multiple expiries qualify, prefer the one with the deepest open interest near your chosen strikes.
-- EARNINGS AWARENESS — the input payload may include nextEarningsDate (ISO YYYY-MM-DD) and earningsDaysAway (integer days from today; non-null only when an earnings date is known). Treat earningsDaysAway ≤ 14 as a near-term earnings event you must handle explicitly:
-  - DEBIT structures (BUY_CALL_SPREAD, BUY_PUT_SPREAD): you MUST choose an expiry whose ISO date is STRICTLY BEFORE nextEarningsDate. IV crush on the print neutralizes the debit thesis regardless of direction. If no chain expiry sits before earnings AND ≥ 7 DTE, pick the shortest available pre-earnings expiry and call the timing constraint out in the rationale. Do NOT recommend a debit expiry that straddles or post-dates earnings within 14d.
-  - CREDIT structures (SELL_PUT_SPREAD, SELL_CALL_SPREAD, IRON_CONDOR, SELL_COVERED_CALL, SELL_CASH_SECURED_PUT): you MAY pick an expiry that straddles earnings — premium harvest into elevated IV is a legitimate edge — BUT only if the rationale EXPLICITLY notes (a) the elevated IV percentile, (b) that the short strike sits outside a plausible earnings-gap move (typically the expected move = ATM straddle price, or ≥ 1.5× the recent 5-day ATR if straddle pricing unavailable), and (c) the user accepts post-print gap risk. Default preference is still to pick an expiry that finishes BEFORE earnings.
-  - ROLL_OUT: the new opening expiry MUST NOT straddle earnings unless rationale explains why (same IV-cushion logic as credit).
-  - The rationale field MUST cite earningsDaysAway whenever it is non-null and ≤ 14. Format: "earnings in {N}d on {YYYY-MM-DD}", followed by what the expiry choice does about it. Example: "earnings in 5d on 2026-05-16, picking 2026-05-15 expiry to finish one day before the print."
-  - Tiebreaker — earnings-avoidance > 30-45 DTE preference. If satisfying both is impossible (e.g. earnings sits in the middle of the 30-45 window and the only pre-earnings expiry is 18 DTE), pick the pre-earnings expiry and accept the sub-30 DTE. Cite the tradeoff in the rationale.
-- When earningsDaysAway is null OR > 14: no earnings constraint applies.
+- EARNINGS AWARENESS — the input payload includes nextEarningsDate (ISO YYYY-MM-DD or null), earningsDaysAway (integer days from today or null), and earningsBufferDate (nextEarningsDate − 2 calendar days; the latest expiry date the user wants the trade to live through). Each expiry in the chain also has a preEarningsSafe boolean: true if the expiry ISO date is ≤ earningsBufferDate. The user is a CONSERVATIVE TRADER who wants to be FULLY OUT of every options trade ≥ 2 days BEFORE earnings.
+
+- ALWAYS-CITE rule: the rationale field MUST include exactly one earnings status sentence at the END of the rationale (after the strategy economics, before any management plan):
+  - When nextEarningsDate is null: "Earnings: not listed in fundamentals — no earnings constraint on this expiry."
+  - When nextEarningsDate is set AND the chosen expiry is preEarningsSafe: "Earnings: {YYYY-MM-DD} ({N}d away) — chosen expiry {chosenExpiryISO} finishes ≥ 2d before the print (safe)."
+  - When nextEarningsDate is set AND the chosen expiry STRADDLES earnings (NOT preEarningsSafe): "Earnings: {YYYY-MM-DD} ({N}d away) — chosen expiry {chosenExpiryISO} STRADDLES the print (NO preEarningsSafe expiry in the chain)."
+  This sentence is mandatory on every pick regardless of strategy.
+
+- HARD RULE — when nextEarningsDate is set:
+  - DEBIT structures (BUY_CALL_SPREAD, BUY_PUT_SPREAD): you MUST choose a preEarningsSafe expiry. IV crush neutralizes the debit thesis. If multiple preEarningsSafe expiries exist, pick the one closest to (but not exceeding) earningsBufferDate. If NONE exists, pick the closest available expiry, surface the straddle in rationale, and the verdict layer will flip to PASS.
+  - CREDIT structures (SELL_PUT_SPREAD, SELL_CALL_SPREAD, IRON_CONDOR, SELL_COVERED_CALL, SELL_CASH_SECURED_PUT): you MUST choose a preEarningsSafe expiry. The user's conservative preference is to NEVER hold a credit position through an earnings print — the "IV-crush edge" rationalization is OFF for this user. If NONE exists, pick the closest available expiry, surface the straddle, and the verdict layer will flip to PASS.
+  - ROLL_OUT: the new opening expiry MUST be preEarningsSafe. Never roll into an earnings-straddle.
+  - Tiebreaker: earnings-avoidance overrides the 30-45 DTE preference. A sub-30 DTE preEarningsSafe expiry is strictly preferred over a 30-45 DTE straddle.
 - Liquidity gate — skip a contract if ANY of: bid == null AND last == null; oi < 50 (when oi is provided); (ask − bid) / mid > 0.10 (spread > 10% of mid is a no-fill risk).
 - Limit price = bid/ask midpoint when both legs have quotes; for spreads, limitPrice = long.mid − short.mid (net debit). For income trades, limitPrice = short.mid (credit). Fall back to "last" if a quote is missing.
 - Sizing must respect NAV. For BUY spreads: cap max-loss-at-trade ≤ 0.5% NAV. For SELL income: cap notional exposure (strike × 100 × contracts) ≤ available cash for CSP, ≤ held shares for covered call.
@@ -140,14 +156,18 @@ SELL_PUT_SPREAD (bullish CREDIT — bull put spread; the cash-light alternative 
 - Width scaling by NAV: keep max-loss-per-contract ≤ 0.5% of NAV. So if NAV is $50k, max loss/contract ≤ $250 → 5-wide spread max ($500 width − ~$150 credit = ~$350 BPR is fine for $100k NAV but too wide for $20k).
 - Contracts: scale by confidence and NAV, default 3-5; cap so total max loss ≤ 1.5% of NAV.
 - netCredit = short.mid − long.mid; limitPrice = netCredit (positive = receive); maxProfit = netCredit × 100 × contracts; maxLoss = (width × 100 − netCredit × 100) × contracts; breakeven = shortStrike − netCredit; capitalRequired = maxLoss (defined risk = BPR for cash accounts; less for margin).
-- Rationale must include: short Δ, both strikes, net credit, 50%-of-max profit-take target ("close at $X = 50% max"), and the BPR vs. CSP equivalent (e.g. "BPR ~$350/contract vs. ~$18,000 for CSP at same strike").
+- ROC and % OTM: the payload includes a putSpreadCandidates table with pre-computed roc (%) and pctOtm (%) for every constructable spread at the standard width. READ these values directly — do NOT recompute them from raw prices. Target ROC 20–30%. If the best delta-matching candidate has ROC > 35%, step to the next lower-delta candidate until ROC ≤ 35%. If ROC < 10%, flag in the rationale that the premium may not justify the capital commitment.
+- Trend alignment: a bull put spread profits when the stock stays flat or rises. If the synthesis direction is bearish or confidence is low, note the trend risk explicitly in the rationale.
+- Rationale must include: short Δ, both strikes, net credit, ROC (from candidates table), pctOtm (from candidates table), 50%-of-max profit-take target ("close at $X = 50% max"), and the BPR vs. CSP equivalent (e.g. "BPR ~$350/contract vs. ~$18,000 for CSP at same strike").
 
 SELL_CALL_SPREAD (bearish CREDIT — bear call spread; the no-shares alternative to SELL_COVERED_CALL):
 - Short leg by delta: DEFAULT to Δ between 0.15 and 0.20 (further OTM, higher POP, more cushion above spot — the conservative default). Step tighter (Δ 0.20 to 0.25) ONLY when confidence ≥ 75 AND a real technical resistance level mentioned in the technical panel sits at or below the chosen strike. Tighter still (Δ 0.25 to 0.30) ONLY when confidence ≥ 80 AND willing to manage. NEVER pick Δ beyond 0.30 by default. Strike must always be ABOVE current spot.
 - Long leg: protective call 5-10 strikes ABOVE the short call (same width-scaling as bull put spread).
 - Width scaling, theta/IV preference, sizing: identical rules to SELL_PUT_SPREAD above, mirror direction.
 - netCredit = short.mid − long.mid; limitPrice = netCredit; maxProfit = netCredit × 100 × contracts; maxLoss = (width × 100 − netCredit × 100) × contracts; breakeven = shortStrike + netCredit; capitalRequired = maxLoss.
-- Rationale: short Δ, both strikes, net credit, 50%-of-max profit-take, BPR vs. covered-call equivalent ("BPR ~$350/contract vs. ~$18,000 of stock for covered call").
+- ROC and % OTM: the payload includes a callSpreadCandidates table — same structure as putSpreadCandidates. READ roc and pctOtm directly from it. Same thresholds: target 20–30%, step to lower delta if > 35%, flag if < 10%.
+- Trend alignment: a bear call spread profits when the stock stays flat or falls. If synthesis direction is bullish or confidence is high, note the trend risk explicitly.
+- Rationale: short Δ, both strikes, net credit, ROC (from candidates table), pctOtm (from candidates table), 50%-of-max profit-take, BPR vs. covered-call equivalent ("BPR ~$350/contract vs. ~$18,000 of stock for covered call").
 
 IRON_CONDOR (neutral CREDIT — bull put spread + bear call spread, same expiry):
 - Pick FOUR contracts at the SAME expiry (30-45 DTE):
@@ -161,7 +181,8 @@ IRON_CONDOR (neutral CREDIT — bull put spread + bear call spread, same expiry)
 - netCredit = (shortPut.mid − longPut.mid) + (shortCall.mid − longCall.mid). limitPrice = netCredit (positive = receive).
 - Economics: maxProfit = netCredit × 100 × contracts; maxLoss = (max(putWidth, callWidth) × 100 − netCredit × 100) × contracts (only one wing can be lost at expiry, so the wider wing dominates); breakevenLower = shortPutStrike − netCredit; breakevenUpper = shortCallStrike + netCredit; capitalRequired = maxLoss; breakeven (the legacy single-value field) = breakevenUpper for UI compatibility.
 - Profit-take target: 50% of net credit (same discipline as single credit spreads). Cite the close-at price in the rationale.
-- Rationale must include: BOTH short Δ values, all four strikes, net credit, both breakevens, and call out the IV-HV premium on BOTH wings (this is the gating condition).
+- ROC and % OTM: payload includes putSpreadCandidates and callSpreadCandidates tables. READ roc and pctOtm for each wing directly from the relevant table — do NOT recompute. Both wings should individually satisfy 20–30% ROC; step to lower delta if either wing exceeds 35%.
+- Rationale must include: BOTH short Δ values, all four strikes, net credit, ROC + pctOtm for each wing (from candidates tables), both breakevens, and call out the IV-HV premium on BOTH wings (this is the gating condition).
 - Do NOT pick IRON_CONDOR if direction != "neutral" — return a single credit spread instead.
 
 SELL_COVERED_CALL (income on held stock):
@@ -221,6 +242,80 @@ Use ONLY contract codes that appear verbatim in the chain payload — do NOT inv
 
 For longLeg / shortLeg, you only need to set: contract (the OCC code from the chain), description (human-readable e.g. "TSLA 2026-05-29 380 Call"), side, strike, expiry. The numeric fields (iv, delta, theta, vega, last, bid, ask) will be populated from the chain by the data layer — you can leave them null in your output, but be aware they WILL be filled in for the rationale you write, so cite the chain's actual delta/IV when writing rationale.`;
 
+// ---------- spread candidate pre-computation ----------
+// Pre-computes ROC and % OTM for every constructable spread at the standard
+// width so the model reads these values instead of calculating them itself.
+
+function standardSpreadWidth(spot: number): number {
+  if (spot < 200) return 5;
+  if (spot < 500) return 10;
+  return 20;
+}
+
+interface SpreadCandidate {
+  expiry: string;
+  dte: number;
+  shortStrike: number;
+  longStrike: number;
+  shortCode: string;
+  longCode: string;
+  delta: number | null;
+  shortMid: number | null;
+  longMid: number | null;
+  netCredit: number | null;
+  roc: number | null;   // % — read directly, do NOT recompute
+  pctOtm: number;       // % short strike is OTM from spot — read directly
+}
+
+function computeSpreadCandidates(
+  chain: OptionChain,
+  side: "P" | "C",
+  spot: number,
+): SpreadCandidate[] {
+  const width = standardSpreadWidth(spot);
+  const candidates: SpreadCandidate[] = [];
+
+  for (const expiry of chain.expiries) {
+    const contracts = expiry.contracts.filter((c) => c.side === side);
+    const byStrike = new Map(contracts.map((c) => [c.strike, c]));
+
+    for (const sc of contracts) {
+      const longStrike = side === "P" ? sc.strike - width : sc.strike + width;
+      const lc = byStrike.get(longStrike);
+      if (!lc) continue;
+
+      const shortMid = executablePrice(sc);
+      const longMid = executablePrice(lc);
+      if (shortMid == null || longMid == null) continue;
+
+      const netCredit = shortMid - longMid;
+      if (netCredit <= 0) continue;
+
+      const roc = Math.round((netCredit / (width - netCredit)) * 1000) / 10;
+      const pctOtm = side === "P"
+        ? Math.round(((spot - sc.strike) / spot) * 1000) / 10
+        : Math.round(((sc.strike - spot) / spot) * 1000) / 10;
+
+      candidates.push({
+        expiry: expiry.expiry,
+        dte: expiry.dte,
+        shortStrike: sc.strike,
+        longStrike,
+        shortCode: sc.code,
+        longCode: lc.code,
+        delta: sc.delta,
+        shortMid: Math.round(shortMid * 100) / 100,
+        longMid: Math.round(longMid * 100) / 100,
+        netCredit: Math.round(netCredit * 100) / 100,
+        roc,
+        pctOtm,
+      });
+    }
+  }
+
+  return candidates.sort((a, b) => a.dte - b.dte || a.pctOtm - b.pctOtm);
+}
+
 // ---------- input shaping ----------
 
 export interface PickerInput {
@@ -246,13 +341,34 @@ export interface PickerInput {
   earningsDaysAway?: number | null;
 }
 
+// Compute the conservative-trader earnings buffer date: nextEarningsDate − 2
+// calendar days. The user wants to be FULLY OUT of every options trade ≥ 2
+// days before earnings, so any expiry ≤ this date is preEarningsSafe.
+function earningsBufferISO(nextEarningsDate: string | null | undefined): string | null {
+  if (!nextEarningsDate) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(nextEarningsDate);
+  if (!m) return null;
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const buf = new Date(t - 2 * 86_400_000);
+  return `${buf.getUTCFullYear()}-${String(buf.getUTCMonth() + 1).padStart(2, "0")}-${String(buf.getUTCDate()).padStart(2, "0")}`;
+}
+
+// True iff expiryISO ≤ bufferISO (both YYYY-MM-DD — string compare is correct).
+function isPreEarningsSafe(expiryISO: string, bufferISO: string | null): boolean {
+  if (!bufferISO) return true;  // no earnings → every expiry is safe
+  return expiryISO <= bufferISO;
+}
+
 // Compress chain to keep prompt small but keep all the data the picker needs.
-function compressChain(chain: OptionChain) {
+// Each expiry is tagged with preEarningsSafe so the model can pick correctly
+// without re-computing date math.
+function compressChain(chain: OptionChain, earningsBuffer: string | null) {
   return {
     spot: chain.spot,
     expiries: chain.expiries.map((e) => ({
       expiry: e.expiry,
       dte: e.dte,
+      preEarningsSafe: isPreEarningsSafe(e.expiry, earningsBuffer),
       contracts: e.contracts.map((c) => ({
         code: c.code,
         side: c.side,
@@ -290,6 +406,8 @@ function buildPrompt(input: PickerInput): string {
     rollHint: input.rollHint ?? null,
     nextEarningsDate: input.nextEarningsDate ?? null,
     earningsDaysAway: input.earningsDaysAway ?? null,
+    earningsBufferDate: earningsBufferISO(input.nextEarningsDate ?? null),
+    today: new Date().toISOString().slice(0, 10),
     portfolio: input.portfolio && {
       netLiquidationSGD: input.portfolio.summary.netLiquidation,
       availableFundsSGD: input.portfolio.summary.availableFunds,
@@ -317,7 +435,15 @@ function buildPrompt(input: PickerInput): string {
     closingCostEstimate: input.derivativesAction === "ROLL_OUT"
       ? Number(closingCostEstimate(optionLegs).toFixed(2))
       : null,
-    chain: compressChain(input.chain),
+    chain: compressChain(input.chain, earningsBufferISO(input.nextEarningsDate ?? null)),
+    // Pre-computed spread candidates — use roc and pctOtm from here directly.
+    // Do NOT recompute these values from raw chain data.
+    ...(input.derivativesAction === "SELL_PUT_SPREAD" || input.derivativesAction === "IRON_CONDOR"
+      ? { putSpreadCandidates: computeSpreadCandidates(input.chain, "P", input.spot) }
+      : {}),
+    ...(input.derivativesAction === "SELL_CALL_SPREAD" || input.derivativesAction === "IRON_CONDOR"
+      ? { callSpreadCandidates: computeSpreadCandidates(input.chain, "C", input.spot) }
+      : {}),
   };
 
   return [
@@ -403,6 +529,11 @@ function buildClosingLeg(p: Position): ContractLeg | null {
     strike: p.strike,
     expiry: p.expiry,
     last: p.mktPrice ?? null,
+    // IBKR portfolio rows don't carry bid/ask — leave null. The roll-plan
+    // closing legs aren't quoted on the UI anyway (the user sees them as a
+    // closing package, not as individually priced legs).
+    bid: null,
+    ask: null,
     iv: p.liveGreeks?.iv ?? null,
     delta: p.liveGreeks?.delta ?? null,
     theta: p.liveGreeks?.theta ?? null,
@@ -610,6 +741,8 @@ function fillLegFromChain(leg: ContractLeg | undefined, chain: OptionChain): Con
       expiry: exp.expiry,
       side: match.side,
       last: match.last,
+      bid: match.bid,
+      ask: match.ask,
       iv: match.iv,
       delta: match.delta,
       theta: match.theta,
@@ -636,6 +769,30 @@ export async function pickContract(input: PickerInput): Promise<ContractPick | n
     schema: PICK_SCHEMA,
     temperature: 0.2,
   });
+
+  // Earnings-window evaluation, applied uniformly to every return path below.
+  // The chosen expiry comes from whichever leg the model populated for this
+  // strategy (long for debits; short for credits/single-leg income; rollPlan
+  // opening leg for ROLL_OUT; iron-condor short put leg as the canonical
+  // expiry since all four IC legs share an expiry).
+  const earningsBuffer = earningsBufferISO(input.nextEarningsDate ?? null);
+  const pickedExpiry =
+    raw.rollPlan?.openingLegs?.[0]?.expiry ??
+    raw.shortLeg?.expiry ??
+    raw.longLeg?.expiry ??
+    raw.shortPutLeg?.expiry ??
+    raw.longPutLeg?.expiry ??
+    null;
+  const earningsInWindow =
+    input.nextEarningsDate != null &&
+    pickedExpiry != null &&
+    !isPreEarningsSafe(pickedExpiry, earningsBuffer);
+  const earningsAnnotations = {
+    nextEarningsDate: input.nextEarningsDate ?? null,
+    earningsDaysAway: input.earningsDaysAway ?? null,
+    earningsBufferDate: earningsBuffer,
+    earningsInWindow,
+  };
 
   // For ROLL_OUT, server constructs the closingLegs from heldPositions and
   // computes net roll credit deterministically — we don't trust the model
@@ -673,6 +830,7 @@ export async function pickContract(input: PickerInput): Promise<ContractPick | n
       quotesAvailable: true,
       ivPercentileNote: raw.ivPercentileNote,
       rationale: raw.rationale,
+      ...earningsAnnotations,
     };
   }
 
@@ -732,6 +890,7 @@ export async function pickContract(input: PickerInput): Promise<ContractPick | n
       quotesAvailable: true,
       ivPercentileNote: raw.ivPercentileNote,
       rationale: raw.rationale,
+      ...earningsAnnotations,
     };
   }
   return {
@@ -751,6 +910,7 @@ export async function pickContract(input: PickerInput): Promise<ContractPick | n
     quotesAvailable: false,
     ivPercentileNote: raw.ivPercentileNote,
     rationale: raw.rationale,
+    ...earningsAnnotations,
   };
 }
 

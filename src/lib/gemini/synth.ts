@@ -24,6 +24,14 @@ const ADJUSTMENT_SCHEMA = {
     stop: { type: "string" },
     target: { type: "string" },
     timeframe: { type: "string" },
+    // Integer share count for the stock sleeve. Required on OPEN/INCREASE/TRIM/
+    // CLOSE; 0 (or omit) on HOLD/PASS. Server uses this to compute % NAV.
+    sizeShares: { type: ["integer", "null"], minimum: 0 },
+    // Integer contract count for the derivatives sleeve. Required on every
+    // new-entry strategy + INCREASE/ROLL_OUT; 0 (or omit) on HOLD/PASS/CLOSE/
+    // TRIM (close/trim references the held leg count separately). Server uses
+    // this to compute % NAV at risk.
+    sizeContracts: { type: ["integer", "null"], minimum: 0 },
   },
   required: ["instruction"],
 };
@@ -88,16 +96,24 @@ const SYSTEM_INSTRUCTION = `You are the head PM at an institutional desk managin
 
 The fundamentals panel is the longest-horizon input — valuation, growth, margins, balance-sheet, analyst targets, next earnings date. Treat it as the QUALITY filter: a stock that screens "bullish" on flow + technicals but is fundamentally broken (negative FCF, decelerating growth, debt-equity > 3x) is a weaker thesis than the technicals alone suggest. Conversely, fundamentals "neutral" on a name with strong technical/flow signals does NOT veto an entry — it just caps conviction. ALWAYS check the fundamentals panel for nextEarningsDate: if earnings are within ~10 days, prefer SHORT-vega income trades (CSP/covered call) over DEBIT spreads, because IV will crush after the print regardless of direction.
 
-EARNINGS HARD-SURFACING RULES (non-negotiable when the fundamentals panel signals near-term earnings):
+EARNINGS HANDLING (this user is a CONSERVATIVE TRADER who wants to be FULLY OUT of every options trade ≥ 2 days BEFORE earnings):
 - The fundamentals panel headline will BEGIN with "[EARNINGS in {N}d]" when earningsDaysAway ≤ 14, or END with "(earnings in {N}d)" when 15 ≤ earningsDaysAway ≤ 30. Parse N from there. The actual ISO date should also appear in the fundamentals panel's [Calendar] bullet or in its meta row labeled "Earnings".
-- When earningsDaysAway ≤ 14 (the panel headline starts with "[EARNINGS in {N}d]"):
-  - rationale: the FIRST sentence MUST include the literal phrase "Earnings {N}d away on {YYYY-MM-DD}" (verbatim format, integer N, ISO date).
-  - rationale: the recommendation MUST reference how it shapes the action — e.g. "...so preferring a CSP that finishes before the print" or "...so waiting on debit spreads until post-earnings IV crush."
-  - riskFactor: MUST start with the literal prefix "Earnings risk: " before the rest of the risk sentence. Example: "Earnings risk: a soft Q3 print could trigger a 5%+ gap-down through the short strike."
-- When 15 ≤ earningsDaysAway ≤ 30 (panel headline ends with "(earnings in {N}d)"):
-  - rationale: MUST include the phrase "Earnings in {N}d on {YYYY-MM-DD}" somewhere in the prose (not necessarily first sentence).
-  - riskFactor: no mandatory prefix, but should mention earnings if it materially shapes risk.
-- When earningsDaysAway > 30 or null: no earnings-surfacing constraint.
+
+- ALWAYS-CITE rule (mandatory on every derivatives sleeve, regardless of action):
+  - When the fundamentals panel reveals a future nextEarningsDate: rationale MUST include the literal phrase "Earnings {N}d away on {YYYY-MM-DD}" (integer N, ISO date) somewhere in the prose.
+  - When NO future earnings date is in fundamentals: rationale MUST include the literal phrase "No earnings in fundamentals — no earnings constraint applies."
+  - This sentence is the user's primary scan for earnings risk. It is required on PASS / HOLD / OPEN / CLOSE / ROLL_OUT — all derivatives actions.
+
+- When earningsDaysAway ≤ 14:
+  - rationale: the earnings-cite sentence MUST be the FIRST sentence of the rationale.
+  - rationale: the recommendation MUST explain how it shapes the action — e.g. "...preferring a sub-earnings expiry that closes ≥ 2d before the print."
+  - riskFactor: MUST start with the literal prefix "Earnings risk: " before the rest of the risk sentence.
+
+- CONSERVATIVE-TRADER GATE (replaces the old "prefer short vega on debit when earnings ≤ 10d" rule):
+  - When 0 < earningsDaysAway ≤ 32 (earnings would land inside a standard 30-DTE credit spread WITH the 2-day exit buffer): the derivatives sleeve SHOULD prefer either (a) a PASS, or (b) a credit spread sized so the picker can choose a sub-earnings expiry ≥ 2d before the print. The picker has the chain and will refuse to recommend an earnings-straddle expiry; if no preEarningsSafe expiry exists in the chain, the route layer will flip the action to PASS. So you may recommend a credit spread when you are confident a pre-earnings expiry exists in the 20-45 DTE band (i.e. earningsDaysAway ≥ 22, leaving room for ~20 DTE pre-earnings); otherwise default to PASS.
+  - When 33 ≤ earningsDaysAway ≤ 47 (earnings would land inside a 45-DTE expiry with buffer): a standard 30-DTE pre-earnings expiry is feasible; recommend the credit spread but cite that the picker will be steered toward a pre-earnings expiry.
+  - When earningsDaysAway > 47 OR null: no earnings constraint, but the always-cite rule still applies.
+
 - These rules supersede the general 3-5 sentence rationale guidance: when earnings is near, the earnings fact takes precedence in placement.
 
 Conviction (single confidence 0-100): your overall directional read. 50 = coin-flip; >75 = strong; 90+ = rare. Both sleeves share this confidence — they just translate it into different products.
@@ -111,12 +127,13 @@ STOCK SLEEVE (action ∈ {OPEN, INCREASE, TRIM, HOLD, CLOSE, PASS}):
 - If the user holds option legs but no stock: choose PASS unless the stock thesis is independently strong, in which case OPEN with conservative sizing (and call out that this adds to existing option exposure).
 - If the user holds nothing on this ticker: OPEN (when conviction ≥60 and direction is decisive) or PASS.
 - direction: "bullish" / "bearish" / "neutral" — the stock-sleeve directional bias.
-- adjustment.instruction: plain English, sized to NAV. Example: "Open 200 shares (~0.5% NAV) between $180-185, stop $172."
-- For OPEN/INCREASE: set sizing, entry, stop, target, timeframe.
-- For TRIM: sizing (% trimmed) and the keep-rationale in instruction.
-- For HOLD: instruction names what to watch for that would change the call.
-- For CLOSE: sizing = "100%", entry = "at market" or "on bounce to $X".
-- For PASS: instruction explains why (e.g. "thesis intact but fully sized; revisit on pullback").
+- adjustment.instruction: plain English describing the play. Example: "Open a starter position between $180-185, stop $172." DO NOT include "% NAV" or any percent-of-portfolio phrasing in this text — the server computes the actual NAV percentage from sizeShares and appends a sizing footer. Any "% NAV" you write here will be stripped and replaced.
+- adjustment.sizeShares: REQUIRED integer share count for OPEN/INCREASE/TRIM/CLOSE. Pick an integer that, multiplied by current spot and FX-converted to the portfolio's baseCurrency, lands inside the target NAV band (institutional starter: 0.3-0.7% NAV; full-conviction add: up to 2% NAV; trim: ~30-50% of current position; close: full held quantity). Use 0 or omit on HOLD/PASS. Compute it from the snapshot.lastPrice + the portfolio block — do not guess.
+- For OPEN/INCREASE: set sizeShares, entry, stop, target, timeframe.
+- For TRIM: sizeShares = shares to trim; keep-rationale in instruction.
+- For HOLD: sizeShares omitted; instruction names what to watch for that would change the call.
+- For CLOSE: sizeShares = full held share count; entry = "at market" or "on bounce to $X".
+- For PASS: sizeShares omitted; instruction explains why (e.g. "thesis intact but fully sized; revisit on pullback").
 
 ---
 
@@ -137,6 +154,12 @@ PASS criteria — apply BEFORE the IV regime / eligibility logic below to skip t
 - Panels in severe directional disagreement — e.g. capital outflow + bullish technicals + sentiment euphoric, or fundamentals weakening while flow is strong → PASS. Signals too noisy to size a one-sided derivative bet, even a far-OTM credit one.
 - Direction "neutral" with conviction < 65 AND no IV-HV premium cited → PASS. No thesis to translate into either premium-collection or premium-payment.
 - The rationale MUST name which PASS criterion fired (e.g. "PASS: conviction 52 with derivatives panel IV-HV at parity — no edge in either direction").
+
+PASS is NOT a fallback for cash constraints. Specifically:
+- cspEligible === false is NEVER a PASS reason. It only blocks SELL_CASH_SECURED_PUT. SELL_PUT_SPREAD (bullish credit) has NO cash gate — its BPR is the spread width minus credit, fits any non-trivial account. If the directional thesis was bullish-to-neutral and conviction is ≥ 55, you MUST pick SELL_PUT_SPREAD, not PASS.
+- Similarly, coveredCallEligible === false is NEVER a PASS reason. It only blocks SELL_COVERED_CALL. SELL_CALL_SPREAD (bearish credit) has NO shares gate. If the thesis was bearish-to-neutral and conviction ≥ 55, you MUST pick SELL_CALL_SPREAD, not PASS.
+- DO NOT bundle "CSP unfundable" + "conviction too low for debit" into a PASS. Conviction thresholds on debit spreads (≥ 75) are about VEGA/POP geometry on long-premium trades — they have NO bearing on credit-spread selection. A bullish thesis with conviction 60 and an unfundable CSP routes to SELL_PUT_SPREAD, full stop.
+
 If none of these fire, proceed to the IV regime rules below.
 
 VOLATILITY IS THE PRIMARY DRIVER, NOT DIRECTION. In options trading, direction is a commodity but volatility is a math problem. Always check vega exposure BEFORE direction.
@@ -202,6 +225,8 @@ Position Management Status (deterministic, server-computed):
 - When a group has a ruleSuggestion of CLOSE / ROLL_OUT*, your derivatives.action SHOULD match (CLOSE → CLOSE; ROLL_OUT* → ROLL_OUT). If you choose differently, the rationale MUST explain WHY — e.g. "ruleSuggestion CLOSE on the BULL_PUT_SPREAD because pt50Hit, but I'd HOLD because earnings are 3 days out and IV is collapsing post-print, so the remaining theta will harvest fast".
 - ROLL_OUT_AND_DOWN means: roll the bull put spread (or short put) to a later expiry AND lower strikes — buy more cushion away from the threatened lower side. ROLL_OUT_AND_UP is the bear-call equivalent. The contract picker downstream consumes this hint; your job is to commit to ROLL_OUT in the sleeve action and call out the direction in adjustment.instruction.
 
+- ROLL-INTO-EARNINGS GUARD: when the rule-based suggestion is ROLL_OUT* AND the held leg is at a LOSS (positionManagement[].pnlPctOfMax < 0) AND earningsDaysAway is non-null AND ≤ 47 (a typical 30-DTE roll target would land inside or beyond the earnings buffer): output action CLOSE instead of ROLL_OUT. The conservative profile won't carry a losing credit position into the print, and rolling +30-60 DTE into an earnings-straddle compounds the risk that triggered the roll. Rationale MUST state: "Held leg losing (pnlPctOfMax {value}) and rolling would land inside the earnings window (earnings {N}d away on {YYYY-MM-DD}) — closing instead." Re-entry post-print can be evaluated on a fresh thesis.
+
 Held-leg Greeks check (CRITICAL — drives defensive decisions on existing positions):
 Each OPT row in heldPositions includes a liveGreeks object with delta, theta, vega, iv when available. Use them. The numbers tell you whether a held position is winning, losing, or in defensive territory.
 - SHORT leg defense thresholds (quantity < 0):
@@ -222,7 +247,17 @@ ROLL_OUT decision rule (when you'd otherwise pick CLOSE on a held credit positio
 
 When the user holds an existing options structure (e.g. a 175/180 call spread), do NOT pretend it is a single contract. Reason about both legs and prefer actions that close/adjust the structure as a whole when the thesis flips.
 
-adjustment.instruction (derivatives sleeve): plain English describing the play. Example: "Sell a 30-45 DTE bull put spread sized at ~0.4% NAV (~5 contracts). Take profit at 50% of max." Describe DTE band + structure + sizing intent + management plan. DO NOT include specific deltas, strike prices, or premium amounts — the contract picker downstream owns strike + delta selection from the live chain (it defaults to far-OTM Δ 0.15-0.20 short legs and only tightens with conviction), and any numbers you mention here will either conflict with the picker or anchor the user on the wrong band. Same rule for ROLL_OUT: describe geometry ("roll the short leg further OTM and out 30 days") without naming target strikes or specific deltas.
+adjustment.instruction (derivatives sleeve): plain English describing the play. Example: "Sell a 30-45 DTE bull put spread. Take profit at 50% of max." Describe DTE band + structure + management plan. DO NOT include specific deltas, strike prices, premium amounts, OR "% NAV" / contract counts — the contract picker downstream owns strike + delta selection from the live chain (defaults to far-OTM Δ 0.15-0.20 short legs and only tightens with conviction), and the server computes and appends the sizing footer from sizeContracts. Any "% NAV" or "(~N contracts)" you write here will be stripped and replaced. Same rule for ROLL_OUT: describe geometry ("roll the short leg further OTM and out 30 days") without naming target strikes or specific deltas.
+
+adjustment.sizeContracts (derivatives sleeve): REQUIRED integer contract count for new entries (SELL_PUT_SPREAD / SELL_CALL_SPREAD / SELL_CASH_SECURED_PUT / SELL_COVERED_CALL / IRON_CONDOR / BUY_CALL_SPREAD / BUY_PUT_SPREAD) and INCREASE. Pick contracts so the approximate max risk lands inside the target NAV band:
+- CSP: cap notional (strike × 100 × contracts) at availableFundsBase AND total notional at ≤ 5-10% NAV.
+- Covered call: 1 contract per 100 uncovered shares (use heldStockShares − shortCallContractsAlreadyOpen × 100).
+- Credit spreads / iron condor: max loss per contract ≈ standard width × 100 (5-wide for spot <$200, 10-wide for $200-500, 20-wide for >$500); cap total max loss at ≤ 1.5% NAV.
+- Debit spreads: max loss per contract ≈ ~35% of standard width × 100; cap at ≤ 0.5% NAV.
+- ROLL_OUT: match held leg quantity (preserves size).
+- HOLD / PASS: omit or set 0.
+- CLOSE / TRIM: set to the existing held leg quantity (full close) or the quantity to trim.
+The server computes the actual % NAV from sizeContracts + spot + the action's standard risk profile and appends the sizing footer; the model picks the integer.
 
 ---
 
@@ -471,6 +506,103 @@ interface RawVerdict {
   derivatives: { action: DerivativesAction; direction: SleeveDirection; adjustment: PositionAdjustment };
 }
 
+// Standard credit-spread width by underlying price (matches contract-picker).
+function standardSpreadWidth(spot: number): number {
+  if (spot < 200) return 5;
+  if (spot < 500) return 10;
+  return 20;
+}
+
+// Approximate max-loss per contract for the action, in the underlying's trade
+// currency. Used purely for the synth-stage NAV % footer — the contract picker
+// downstream computes the real number from live quotes. These are rough but
+// representative for sizing display.
+function approxRiskPerContractTradeCcy(action: DerivativesAction, spot: number): number {
+  if (spot <= 0) return 0;
+  switch (action) {
+    case "SELL_CASH_SECURED_PUT":
+      // CSP capital = strike notional ≈ spot × 100 (strike typically ≈ 0.92×spot,
+      // but we want a directionally honest upper bound for the user).
+      return spot * 100;
+    case "SELL_COVERED_CALL":
+      // No incremental capital — the shares already count in NAV.
+      return 0;
+    case "SELL_PUT_SPREAD":
+    case "SELL_CALL_SPREAD":
+    case "IRON_CONDOR":
+      // Credit spread max loss ≈ width × 100 (minus credit, ignored here).
+      return standardSpreadWidth(spot) * 100;
+    case "BUY_CALL_SPREAD":
+    case "BUY_PUT_SPREAD":
+      // Debit spread max loss = debit × 100; typical debit is ~35% of width.
+      return standardSpreadWidth(spot) * 100 * 0.35;
+    default:
+      // ROLL_OUT preserves size; INCREASE/TRIM/HOLD/CLOSE/PASS don't open
+      // new risk at synth-time granularity.
+      return 0;
+  }
+}
+
+// Strip any model-emitted "% NAV" / "(~N% NAV)" / "sized at ~N% NAV" fragments
+// so we can append the server-computed sizing footer without doubling up.
+// Order matters: peel off the wrapping phrase ("sized at X% NAV") before the
+// bare "X% NAV" pattern, otherwise we leave dangling prepositions.
+function stripNavPctPhrases(s: string): string {
+  if (!s) return s;
+  return s
+    // "sized at/to ~N% NAV (~N contracts)" or "sized at ~N% NAV" — full phrase
+    .replace(
+      /,?\s*sized\s+(?:at|to)\s+~?\s*\d+(?:\.\d+)?\s*%\s*(?:of\s+)?NAV(?:\s*\(\s*~?\s*\d+\s+contracts?\s*\))?\s*/gi,
+      " ",
+    )
+    // Parenthesized "(~N% NAV)" or "(~N% of NAV)"
+    .replace(/\(\s*~?\s*\d+(?:\.\d+)?\s*%\s*(?:of\s+)?NAV\s*\)/gi, " ")
+    // Bare "~N% NAV" anywhere else
+    .replace(/~?\s*\d+(?:\.\d+)?\s*%\s*(?:of\s+)?NAV/gi, " ")
+    // Stand-alone "(~N contracts)" — the footer states the contract count itself
+    .replace(/\(\s*~?\s*\d+\s+contracts?\s*\)/gi, " ")
+    // Collapse whitespace + tidy punctuation
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;])/g, "$1")
+    .trim();
+}
+
+function appendStockSizingFooter(
+  instruction: string,
+  shares: number,
+  spotTrade: number,
+  tradeCcy: string,
+  navBase: number,
+  portfolio: SynthInput["portfolio"],
+): string {
+  const cleaned = stripNavPctPhrases(instruction);
+  if (!shares || shares <= 0 || spotTrade <= 0 || navBase <= 0) return cleaned;
+  const spotBase = toBaseCurrency(spotTrade, tradeCcy, portfolio);
+  const pct = (shares * spotBase / navBase) * 100;
+  return `${cleaned} (Sized: ${shares} shares ≈ ${pct.toFixed(1)}% NAV)`;
+}
+
+function appendDerivativesSizingFooter(
+  instruction: string,
+  contracts: number,
+  action: DerivativesAction,
+  spotTrade: number,
+  tradeCcy: string,
+  navBase: number,
+  portfolio: SynthInput["portfolio"],
+): string {
+  const cleaned = stripNavPctPhrases(instruction);
+  if (!contracts || contracts <= 0 || navBase <= 0) return cleaned;
+  const perContractTrade = approxRiskPerContractTradeCcy(action, spotTrade);
+  if (perContractTrade <= 0) {
+    // Covered call / ROLL_OUT / management actions: just state the contract count.
+    return `${cleaned} (Sized: ${contracts} contract${contracts === 1 ? "" : "s"})`;
+  }
+  const perContractBase = toBaseCurrency(perContractTrade, tradeCcy, portfolio);
+  const pct = (contracts * perContractBase / navBase) * 100;
+  return `${cleaned} (Sized: ${contracts} contract${contracts === 1 ? "" : "s"} ≈ ${pct.toFixed(1)}% NAV max risk)`;
+}
+
 // Returns the dual-sleeve verdict fields only — the route attaches the panels
 // (already known) and the optional contractPick (from the downstream picker).
 export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict, "panels">> {
@@ -506,15 +638,69 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
     derivInstr = `[Auto-corrected: ${elig.heldStockShares} shares held, need ≥100 for covered call. Switched to bear call spread.] ${derivInstr}`;
   }
 
+  // PASS-with-cash-constraint override. The model sometimes bundles "CSP
+  // unfundable" + "conviction too low for debit" into a single PASS, even
+  // though SELL_PUT_SPREAD remains a valid bullish credit fallback (defined
+  // risk, no cash gate, lower conviction threshold than debit). Detect that
+  // path by the rationale/instruction citing the CSP unfundable signature
+  // and route to the directional credit-spread fallback.
+  if (derivAction === "PASS" && raw.confidence >= 55) {
+    const combined = `${derivInstr} ${raw.rationale}`.toLowerCase();
+    const citesCspGate =
+      combined.includes("cspmin") ||
+      combined.includes("csp unfundable") ||
+      combined.includes("unfundable") ||
+      (combined.includes("csp") && combined.includes("insufficient"));
+    if (citesCspGate && !elig.cspEligible) {
+      const fallback: DerivativesAction =
+        raw.derivatives.direction === "bearish" ? "SELL_CALL_SPREAD" : "SELL_PUT_SPREAD";
+      console.warn(
+        `[synth] LLM picked PASS citing CSP unfundability (cspEligible=false, conviction=${raw.confidence}, ` +
+          `direction=${raw.derivatives.direction}) — overriding to ${fallback}.`,
+      );
+      derivAction = fallback;
+      derivInstr = `[Auto-corrected: PASS rationale cited CSP cash gate, but ${fallback === "SELL_PUT_SPREAD" ? "bull put spread" : "bear call spread"} is the cash-light credit fallback at the same directional thesis. Switched.] ${derivInstr}`;
+    }
+  }
+
+  // Server-computed sizing footer: strip any "% NAV" prose the model wrote
+  // and append the deterministic version computed from sizeShares / sizeContracts
+  // + live spot + FX-converted NAV. The model is no longer the source of truth
+  // for sizing percentages (it routinely hallucinated 100× errors on small NAVs).
+  const spotTrade = input.snapshot?.lastPrice ?? 0;
+  const tradeCcy = tradeCurrency(input.symbol);
+  const navBase = input.portfolio?.summary.netLiquidation ?? 0;
+
+  const stockShares = raw.stock.adjustment.sizeShares ?? 0;
+  const stockInstr = appendStockSizingFooter(
+    raw.stock.adjustment.instruction,
+    stockShares,
+    spotTrade,
+    tradeCcy,
+    navBase,
+    input.portfolio,
+  );
+
+  const derivContracts = raw.derivatives.adjustment.sizeContracts ?? 0;
+  const derivInstrWithFooter = appendDerivativesSizingFooter(
+    derivInstr,
+    derivContracts,
+    derivAction,
+    spotTrade,
+    tradeCcy,
+    navBase,
+    input.portfolio,
+  );
+
   const stock: SleeveVerdict<StockAction> = {
     action: raw.stock.action,
     direction: raw.stock.direction,
-    adjustment: raw.stock.adjustment,
+    adjustment: { ...raw.stock.adjustment, instruction: stockInstr },
   };
   const derivatives: SleeveVerdict<DerivativesAction> = {
     action: derivAction,
     direction: raw.derivatives.direction,
-    adjustment: { ...raw.derivatives.adjustment, instruction: derivInstr },
+    adjustment: { ...raw.derivatives.adjustment, instruction: derivInstrWithFooter },
   };
   return {
     confidence: raw.confidence,
