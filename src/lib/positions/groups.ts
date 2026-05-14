@@ -7,6 +7,15 @@ function underlyingOf(p: Position): string {
   return p.contractDesc.trim().split(/\s+/)[0]?.toUpperCase() ?? "";
 }
 
+// Canonicalize expiry to dashed ISO so bucket keys match regardless of which
+// format the upstream source produced. adaptPosition already normalizes at the
+// IBKR boundary; this is belt-and-braces for any other call site.
+function toIsoExpiry(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const m = /(\d{4})-?(\d{2})-?(\d{2})/.exec(raw);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : "";
+}
+
 function dteFromIso(iso: string | null | undefined, nowMs: number): number {
   if (!iso) return 0;
   const m = /(\d{4})-?(\d{2})-?(\d{2})/.exec(iso);
@@ -156,7 +165,7 @@ export function classifyPortfolio(positions: Position[], opts: ClassifyOptions =
       stockByTicker.set(tk, arr);
     } else if (p.assetClass === "OPT") {
       if (p.position === 0) continue;
-      const exp = p.expiry ?? "";
+      const exp = toIsoExpiry(p.expiry);
       const key = `${tk}|${exp}`;
       const arr = optByBucket.get(key) ?? [];
       arr.push(p);

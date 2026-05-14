@@ -161,23 +161,22 @@ async function getStrikes(undConid: number, month: string, exchange: string): Pr
   return promise;
 }
 
-// Wire-only fetch: one IBKR /iserver/secdef/info call, projected to the
-// canonical SMART listing. The persistent gap-check is done by the caller
-// before this is invoked (see getNarrowOptionChain). Inflight dedup still
-// applies because the caller may compute the same gap from two concurrent
-// chain requests in the same process.
-async function fetchOneInfo(
+// Wire-only fetch: one IBKR /iserver/secdef/info call. A single (month, strike,
+// right) bucket can map to multiple conids — the monthly plus several weeklies
+// that share the same calendar month. The wire also returns one row per
+// exchange listing per conid (SMART/AMEX/CBOE/…). Dedup by conid keeping the
+// SMART row, then return every distinct conid. Returning only one used to
+// silently strip weekly conids and leave held positions uncached
+// (see enrich.ts's getInfoByConid hit-or-miss path).
+async function fetchBucketInfo(
   undConid: number,
   month: string,
   strike: number,
   right: "C" | "P",
-): Promise<SecdefInfoRow | null> {
+): Promise<SecdefInfoRow[]> {
   const key = `${undConid}:${month}:${strike}:${right}`;
   const inflight = INFO_INFLIGHT.get(key);
-  if (inflight) {
-    const arr = await inflight;
-    return arr[0] ?? null;
-  }
+  if (inflight) return inflight;
   const promise = withSecdefLimit(async () => {
     const params = new URLSearchParams({
       conid: String(undConid),
@@ -190,26 +189,24 @@ async function fetchOneInfo(
       `/iserver/secdef/info?${params}`,
     );
     if (!rows?.length) return [];
-    // IBKR returns one row per exchange listing (SMART/AMEX/CBOE/…); they
-    // share conid/strike/maturity. Keep the SMART listing if present, else
-    // the first. Project to the schema shape with underlying_conid/month
-    // injected (the wire response doesn't include them).
-    const r = rows.find((row) => row.exchange === "SMART") ?? rows[0];
-    return [
-      {
-        conid: r.conid,
-        underlyingConid: undConid,
-        month,
-        strike: r.strike,
-        right: r.right,
-        maturityDate: r.maturityDate,
-        multiplier: r.multiplier,
-      } as SecdefInfoRow,
-    ];
+    const byConid = new Map<number, SecdefInfoRow & { exchange?: string }>();
+    for (const r of rows) {
+      if (typeof r.conid !== "number") continue;
+      const existing = byConid.get(r.conid);
+      if (!existing || r.exchange === "SMART") byConid.set(r.conid, r);
+    }
+    return [...byConid.values()].map((r) => ({
+      conid: r.conid,
+      underlyingConid: undConid,
+      month,
+      strike: r.strike,
+      right: r.right,
+      maturityDate: r.maturityDate,
+      multiplier: r.multiplier,
+    } as SecdefInfoRow));
   }).finally(() => INFO_INFLIGHT.delete(key));
   INFO_INFLIGHT.set(key, promise);
-  const arr = await promise;
-  return arr[0] ?? null;
+  return promise;
 }
 
 // Snapshot field IDs (Client Portal Web API).
@@ -467,10 +464,27 @@ export async function getNarrowOptionChain(
   }
 
   // Phase 4: fan out only the gap; existing concurrency limit + 429 retry.
+  // Each bucket fetch can return multiple conids (weeklies sharing a month),
+  // so flatten before inserting.
+  let bucketErrCount = 0;
+  let bucketEmptyCount = 0;
   const fetched = await runWithConcurrency(gap, 8, ({ month, strike, right }) =>
-    fetchOneInfo(undConid, month, strike, right).catch(() => null),
+    fetchBucketInfo(undConid, month, strike, right).then(
+      (rows) => {
+        if (!rows.length) bucketEmptyCount++;
+        return rows;
+      },
+      (e) => {
+        bucketErrCount++;
+        console.warn(`[chain] bucket fail ${ticker} ${month} ${strike}${right}:`, (e as Error)?.message ?? e);
+        return [] as SecdefInfoRow[];
+      },
+    ),
   );
-  const fetchedRows: SecdefInfoRow[] = fetched.filter((r): r is SecdefInfoRow => r !== null);
+  const fetchedRows: SecdefInfoRow[] = fetched.flat();
+  if (bucketErrCount || bucketEmptyCount) {
+    console.warn(`[chain] ${ticker} undConid=${undConid} gaps=${gap.length} errs=${bucketErrCount} empties=${bucketEmptyCount} fetchedRows=${fetchedRows.length}`);
+  }
   insertInfoRows(fetchedRows);
 
   // Phase 5: merge known + fetched, then filter to the strike window so the

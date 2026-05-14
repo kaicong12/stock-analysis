@@ -199,6 +199,16 @@ interface OptionDescParts {
   putOrCall: "C" | "P" | null;
 }
 
+// IBKR's portfolio endpoint returns expiry in mixed formats — sometimes
+// dashed ISO, sometimes "YYYYMMDD". Downstream bucket keys do raw string
+// equality, so two legs that name the same date in different formats split
+// into different groups. Normalize at the adapter boundary.
+function normalizeExpiry(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const m = /(\d{4})-?(\d{2})-?(\d{2})/.exec(raw);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
 // Parse a contractDesc like "AAPL JUN2026 260 P" → { strike: 260, expiry: "2026-06-19", putOrCall: "P" }.
 function parseOptionDesc(desc: string): OptionDescParts {
   const parts = desc.trim().split(/\s+/);
@@ -247,7 +257,7 @@ function adaptPosition(p: RawPosition): Position {
     realizedPnl: p.realizedPnl,
     currency: p.currency,
     assetClass: p.assetClass,
-    expiry: p.expiry ?? fb.expiry ?? null,
+    expiry: normalizeExpiry(p.expiry) ?? fb.expiry ?? null,
     strike: p.strike != null && p.strike > 0 ? p.strike : fb.strike ?? null,
     putOrCall: p.putOrCall ?? fb.putOrCall ?? null,
     multiplier: p.multiplier ?? null,
