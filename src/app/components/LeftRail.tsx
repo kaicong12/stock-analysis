@@ -6,6 +6,7 @@ import { isOptionGroup } from "../../lib/positions/types";
 import { fmtMoney, fmtNum, fmtSigned } from "./format";
 import { JournalButton } from "./Journal";
 import { CalendarButton } from "./Calendar";
+import { ChecklistButton } from "./Checklist";
 
 const GROUP_LABEL: Record<HeldGroup["kind"], string> = {
   STOCK: "Stock",
@@ -64,6 +65,7 @@ export function LeftRail({
       <PortfolioSnapshot portfolio={portfolio} />
       <StocksCard groups={stocks} searchedTicker={searchedTicker} onPickTicker={onPickTicker} />
       <OptionsCard groups={options} searchedTicker={searchedTicker} onPickTicker={onPickTicker} />
+      <ChecklistButton />
       <JournalButton />
       <CalendarButton />
     </aside>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import styles from "../page.module.css";
 import type { JournalStrategy, JournalTradeWithLegs } from "../../lib/journal/types";
 
@@ -363,6 +363,10 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
   const [expiry, setExpiry] = useState("");
   const [netCredit, setNetCredit] = useState<string>("");
   const [maxRisk, setMaxRisk] = useState<string>("");
+  // Track whether the user has manually typed into the Max Risk field. Until
+  // they do, we mirror the auto-calculated value into the input so it visibly
+  // populates as legs + credit are entered.
+  const maxRiskTouchedRef = useRef(false);
   const [contracts, setContracts] = useState<string>("1");
   const [thesis, setThesis] = useState("");
   const [mgmtProfit, setMgmtProfit] = useState("");
@@ -452,9 +456,20 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
     return { calcBE: calculatedBE, calcROC, calcNetDelta, calculatedMaxRisk };
   }, [strategy, legs, netCredit]);
 
+  useEffect(() => {
+    if (maxRiskTouchedRef.current) return;
+    if (calcs.calculatedMaxRisk !== null && calcs.calculatedMaxRisk > 0) {
+      setMaxRisk(calcs.calculatedMaxRisk.toFixed(2));
+    } else {
+      setMaxRisk("");
+    }
+  }, [calcs.calculatedMaxRisk]);
+
   function onStrategyChange(s: JournalStrategy) {
     setStrategy(s);
     setLegs(defaultLegsForStrategy(s));
+    // New strategy invalidates any prior manual override.
+    maxRiskTouchedRef.current = false;
   }
 
   const [nowMs] = useState(() => Date.now());
@@ -546,24 +561,46 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
       <label className={styles.journalField}>Contracts
         <input className={styles.journalInput} type="number" min={1} value={contracts} onChange={(e) => setContracts(e.target.value)} />
       </label>
+
+      <div className={styles.journalLegs}>
+        <div className={styles.journalLegsLabel}>Legs</div>
+        {legs.map((l, i) => (
+          <div key={i} className={styles.journalLegRow}>
+            <select className={styles.journalSelect} value={l.action} onChange={(e) => setLegs((prev) => prev.map((x, j) => j === i ? { ...x, action: e.target.value as "BUY" | "SELL" } : x))}>
+              <option value="BUY">BUY</option>
+              <option value="SELL">SELL</option>
+            </select>
+            <select className={styles.journalSelect} value={l.side} onChange={(e) => setLegs((prev) => prev.map((x, j) => j === i ? { ...x, side: e.target.value as "C" | "P" } : x))}>
+              <option value="P">Put</option>
+              <option value="C">Call</option>
+            </select>
+            <input className={styles.journalInput} type="number" step="0.01" placeholder="Strike" value={l.strike} onChange={(e) => setLegs((prev) => prev.map((x, j) => j === i ? { ...x, strike: e.target.value } : x))} />
+            <input className={styles.journalInput} type="number" step="0.01" placeholder="Delta at entry" value={l.deltaAtEntry} onChange={(e) => setLegs((prev) => prev.map((x, j) => j === i ? { ...x, deltaAtEntry: e.target.value } : x))} />
+          </div>
+        ))}
+      </div>
+
       <label className={styles.journalField}>Net credit ($/spread)
         <input className={styles.journalInput} type="number" step="0.01" value={netCredit} onChange={(e) => setNetCredit(e.target.value)} />
       </label>
       <label className={styles.journalField}>Max risk ($/spread)
-        <input 
-          className={styles.journalInput} 
-          type="number" 
-          step="0.01" 
-          value={maxRisk} 
-          onChange={(e) => setMaxRisk(e.target.value)} 
+        <input
+          className={styles.journalInput}
+          type="number"
+          step="0.01"
+          value={maxRisk}
+          onChange={(e) => {
+            maxRiskTouchedRef.current = true;
+            setMaxRisk(e.target.value);
+          }}
           placeholder={calcs.calculatedMaxRisk ? calcs.calculatedMaxRisk.toFixed(2) : ""}
         />
       </label>
 
-      <div className={styles.journalSpan} style={{ 
-        display: "grid", 
-        gridTemplateColumns: "repeat(4, 1fr)", 
-        gap: 12, 
+      <div className={styles.journalSpan} style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: 12,
         padding: "10px 12px",
         background: "var(--surface-container-low)",
         borderRadius: "var(--radius)",
@@ -606,23 +643,6 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
         </div>
       </div>
 
-      <div className={styles.journalLegs}>
-        <div className={styles.journalLegsLabel}>Legs</div>
-        {legs.map((l, i) => (
-          <div key={i} className={styles.journalLegRow}>
-            <select className={styles.journalSelect} value={l.action} onChange={(e) => setLegs((prev) => prev.map((x, j) => j === i ? { ...x, action: e.target.value as "BUY" | "SELL" } : x))}>
-              <option value="BUY">BUY</option>
-              <option value="SELL">SELL</option>
-            </select>
-            <select className={styles.journalSelect} value={l.side} onChange={(e) => setLegs((prev) => prev.map((x, j) => j === i ? { ...x, side: e.target.value as "C" | "P" } : x))}>
-              <option value="C">Call</option>
-              <option value="P">Put</option>
-            </select>
-            <input className={styles.journalInput} type="number" step="0.01" placeholder="Strike" value={l.strike} onChange={(e) => setLegs((prev) => prev.map((x, j) => j === i ? { ...x, strike: e.target.value } : x))} />
-            <input className={styles.journalInput} type="number" step="0.01" placeholder="Delta at entry" value={l.deltaAtEntry} onChange={(e) => setLegs((prev) => prev.map((x, j) => j === i ? { ...x, deltaAtEntry: e.target.value } : x))} />
-          </div>
-        ))}
-      </div>
       <label className={`${styles.journalField} ${styles.journalSpan}`}>Trade thesis
         <textarea className={styles.journalTextarea} value={thesis} onChange={(e) => setThesis(e.target.value)} rows={2} />
       </label>
