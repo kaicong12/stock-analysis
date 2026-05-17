@@ -217,6 +217,7 @@ function TradeRow(props: {
   const t = props.trade;
   const [expanded, setExpanded] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [editingNotes, setEditingNotes] = useState(false);
   const strikes = t.legs.map((l) => l.strike).sort((a, b) => a - b).join("/");
   const shortDeltas = t.legs
     .filter((l) => l.action === "SELL" && l.deltaAtEntry !== null)
@@ -247,10 +248,26 @@ function TradeRow(props: {
       <div className={`${styles.journalTradeMeta} tabular-nums`}>
         Short Δ entry: {shortDeltaLabel}
       </div>
-      <div className={styles.journalTradeBody}>Thesis: {t.thesis}</div>
-      <div className={styles.journalTradeSub}>
-        Management plan: profit — {t.mgmtProfit} · loss — {t.mgmtLoss}
-      </div>
+      {editingNotes ? (
+        <EditNotesForm
+          tradeId={t.id}
+          initialThesis={t.thesis}
+          initialMgmtProfit={t.mgmtProfit}
+          initialMgmtLoss={t.mgmtLoss}
+          onCancel={() => setEditingNotes(false)}
+          onSaved={() => {
+            setEditingNotes(false);
+            props.onAfterMutation();
+          }}
+        />
+      ) : (
+        <>
+          <div className={styles.journalTradeBody}>Thesis: {t.thesis}</div>
+          <div className={styles.journalTradeSub}>
+            Management plan: profit — {t.mgmtProfit} · loss — {t.mgmtLoss}
+          </div>
+        </>
+      )}
       {showExit && (
         <>
           <div className={styles.journalSectionLabel}>
@@ -268,6 +285,14 @@ function TradeRow(props: {
       <div className={styles.journalActionRow}>
         <button type="button" className={styles.btnGhost} onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Hide legs" : "Show legs"}
+        </button>
+        <button
+          type="button"
+          className={styles.btnGhost}
+          onClick={() => setEditingNotes((v) => !v)}
+          disabled={closing}
+        >
+          {editingNotes ? "Cancel edit" : "Edit notes"}
         </button>
         {isOpen && (
           <button type="button" className={styles.btnPrimary} onClick={() => setClosing(true)}>
@@ -656,6 +681,68 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
       <div className={styles.journalActions}>
         <button type="button" className={styles.btnGhost} onClick={props.onCancel}>Cancel</button>
         <button type="button" className={styles.btnPrimary} onClick={submit} disabled={submitting}>{submitting ? "Saving…" : "Save trade"}</button>
+      </div>
+    </div>
+  );
+}
+
+function EditNotesForm(props: {
+  tradeId: number;
+  initialThesis: string;
+  initialMgmtProfit: string;
+  initialMgmtLoss: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [thesis, setThesis] = useState(props.initialThesis);
+  const [mgmtProfit, setMgmtProfit] = useState(props.initialMgmtProfit);
+  const [mgmtLoss, setMgmtLoss] = useState(props.initialMgmtLoss);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    setErr(null);
+    if (!thesis.trim()) return setErr("thesis must be non-empty");
+    if (!mgmtProfit.trim()) return setErr("profit target must be non-empty");
+    if (!mgmtLoss.trim()) return setErr("loss exit must be non-empty");
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/journal/${props.tradeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          thesis: thesis.trim(),
+          mgmtProfit: mgmtProfit.trim(),
+          mgmtLoss: mgmtLoss.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      props.onSaved();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className={styles.journalForm}>
+      <label className={`${styles.journalField} ${styles.journalSpan}`}>Trade thesis
+        <textarea className={styles.journalTextarea} value={thesis} onChange={(e) => setThesis(e.target.value)} rows={2} />
+      </label>
+      <label className={`${styles.journalField} ${styles.journalSpan}`}>Management plan: profit target
+        <textarea className={styles.journalTextarea} value={mgmtProfit} onChange={(e) => setMgmtProfit(e.target.value)} rows={2} />
+      </label>
+      <label className={`${styles.journalField} ${styles.journalSpan}`}>Management plan: loss exit
+        <textarea className={styles.journalTextarea} value={mgmtLoss} onChange={(e) => setMgmtLoss(e.target.value)} rows={2} />
+      </label>
+      {err && <div className={styles.journalError}>Error: {err}</div>}
+      <div className={styles.journalActions}>
+        <button type="button" className={styles.btnGhost} onClick={props.onCancel}>Cancel</button>
+        <button type="button" className={styles.btnPrimary} onClick={submit} disabled={submitting}>{submitting ? "Saving…" : "Save notes"}</button>
       </div>
     </div>
   );

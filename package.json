@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "lint:fix": "eslint src eslint.config.mjs next.config.ts --fix",
+    "kill-port": "npx kill-port",
     "prepare": "husky"
   },
   "dependencies": {
