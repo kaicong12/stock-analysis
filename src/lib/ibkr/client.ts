@@ -102,12 +102,12 @@ interface ResolvedAccount {
   isPaper: boolean;
 }
 
-// Resolves the active IBKR account by asking /portfolio/accounts. If
-// IBKR_ACCOUNT_ID is set in env it's treated as a soft pin (used only when it
-// matches one of the discovered accounts — useful for master accounts choosing
-// a specific child). A stale env value is ignored rather than breaking the
-// session. Cached per process; restart the server if you switch logged-in
-// accounts in the gateway.
+// Resolves the active IBKR account by asking /portfolio/accounts. IBKR
+// sometimes returns multiple account ids per login (e.g. a newly-opened but
+// unfunded sibling account alongside the active one). Picking by list order
+// would silently land on the empty account, so we probe each candidate's
+// summary and pick the one with the highest netLiquidation. Cached per
+// process; restart the server if you switch logged-in accounts in the gateway.
 let cachedAccount: ResolvedAccount | null = null;
 export async function resolveAccount(): Promise<ResolvedAccount> {
   if (cachedAccount) return cachedAccount;
@@ -116,10 +116,23 @@ export async function resolveAccount(): Promise<ResolvedAccount> {
     .map((r) => ({ ...r, accountId: r.accountId ?? r.id }))
     .filter((r): r is RawAccountRow & { accountId: string } => !!r.accountId);
   if (!candidates.length) throw new Error("IBKR /portfolio/accounts returned no usable account id");
-  const pinned = env.ibkrAccountId
-    ? candidates.find((c) => c.accountId === env.ibkrAccountId)
-    : null;
-  const picked = pinned ?? candidates[0];
+
+  let picked: typeof candidates[number] = candidates[0];
+  if (candidates.length > 1) {
+    const ranked = await Promise.all(
+      candidates.map(async (c) => {
+        try {
+          const s = await ibkr<RawSummary>(`/portfolio/${c.accountId}/summary`);
+          return { c, nlv: s.netliquidation?.amount ?? 0 };
+        } catch {
+          return { c, nlv: 0 };
+        }
+      })
+    );
+    ranked.sort((a, b) => b.nlv - a.nlv);
+    picked = ranked[0].c;
+  }
+
   const accountType = picked.type ?? "UNKNOWN";
   cachedAccount = {
     accountId: picked.accountId,

@@ -91,6 +91,56 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
   (db) => {
     db.exec(`ALTER TABLE journal_trades DROP COLUMN iv_rank;`);
   },
+  (db) => {
+    // Tables for the IBKR Flex Query trade-sync pipeline. ibkr_trades stores
+    // one row per executed fill, keyed by Flex's globally-unique transactionID
+    // so the sync can be re-run any number of times safely. ibkr_flex_sync
+    // tracks the last run so concurrent client triggers can short-circuit and
+    // the UI can surface a staleness warning if the daily pull stops working.
+    db.exec(`
+      CREATE TABLE ibkr_trades (
+        transaction_id     TEXT PRIMARY KEY,
+        account_id         TEXT NOT NULL,
+        trade_date         TEXT NOT NULL,
+        asset_category     TEXT NOT NULL,
+        symbol             TEXT NOT NULL,
+        description        TEXT,
+        conid              INTEGER,
+        strike             REAL,
+        expiry             TEXT,
+        put_call           TEXT,
+        multiplier         INTEGER,
+        transaction_type   TEXT NOT NULL,
+        buy_sell           TEXT NOT NULL,
+        quantity           REAL NOT NULL,
+        trade_price        REAL,
+        proceeds           REAL,
+        ib_commission      REAL,
+        net_cash           REAL,
+        open_close         TEXT,
+        fifo_pnl_realized  REAL NOT NULL DEFAULT 0,
+        mtm_pnl            REAL,
+        currency           TEXT NOT NULL,
+        ib_order_id        TEXT,
+        order_time         TEXT,
+        raw_json           TEXT NOT NULL,
+        inserted_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX idx_ibkr_trades_date  ON ibkr_trades(trade_date);
+      CREATE INDEX idx_ibkr_trades_class ON ibkr_trades(asset_category, trade_date);
+
+      CREATE TABLE ibkr_flex_sync (
+        query_id         TEXT PRIMARY KEY,
+        last_success_at  TEXT,
+        last_window_to   TEXT,
+        last_attempt_at  TEXT,
+        last_error       TEXT,
+        trades_seen      INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  },
 ];
 
 function runMigrations(db: Database.Database): void {
