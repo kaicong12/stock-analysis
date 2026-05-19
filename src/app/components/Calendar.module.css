@@ -9,7 +9,60 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.controlsLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.syncBanner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-container-low);
+  color: var(--on-surface-variant);
+}
+
+.syncBannerWarn {
+  border-color: rgba(255, 193, 7, 0.5);
+  background: rgba(255, 193, 7, 0.08);
+  color: #f4c430;
+}
+
+.syncBannerError {
+  border-color: var(--bearish);
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--bearish);
+}
+
+.syncBannerBtn {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-md);
+  color: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.syncBannerBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.syncBannerBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .monthSelect {
@@ -22,6 +75,31 @@
   color: var(--on-surface);
   cursor: pointer;
   outline: none;
+}
+
+.syncBtn {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  background: var(--surface-container);
+  color: var(--on-surface);
+  cursor: pointer;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  min-width: 88px;
+  text-align: center;
+}
+
+.syncBtn:hover:not(:disabled) {
+  background: var(--surface-container-high);
+  border-color: var(--primary, #4f8cff);
+}
+
+.syncBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 
