@@ -141,6 +141,12 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       );
     `);
   },
+  (db) => {
+    db.exec(`ALTER TABLE ibkr_trades ADD COLUMN fx_rate_to_base REAL;`);
+  },
+  (db) => {
+    db.exec(`ALTER TABLE ibkr_trades ADD COLUMN date_time TEXT;`);
+  },
 ];
 
 function runMigrations(db: Database.Database): void {

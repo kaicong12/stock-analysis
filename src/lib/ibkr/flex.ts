@@ -27,9 +27,11 @@ export interface FlexTrade {
   openClose: "O" | "C" | null;
   fifoPnlRealized: number;
   mtmPnl: number | null;
+  fxRateToBase: number | null;  // trade currency → account base currency at trade time
   currency: string;
   ibOrderId: string | null;
-  orderTime: string | null;     // raw "YYYYMMDD;HHMMSS"
+  dateTime: string | null;      // execution datetime "YYYYMMDD;HHMMSS" (preferred for SGT)
+  orderTime: string | null;     // order submission datetime "YYYYMMDD;HHMMSS" (stale for GTC)
   raw: string;                  // full `<Trade .../>` tag for forensics
 }
 
@@ -211,8 +213,10 @@ function parseTradeTag(raw: string): FlexTrade | null {
     openClose: openCloseRaw === "O" || openCloseRaw === "C" ? openCloseRaw : null,
     fifoPnlRealized: num(attrs.fifoPnlRealized) ?? 0,
     mtmPnl: num(attrs.mtmPnl),
+    fxRateToBase: num(attrs.fxRateToBase),
     currency,
     ibOrderId: attrs.ibOrderID || null,
+    dateTime: attrs.dateTime || null,
     orderTime: attrs.orderTime || null,
     raw,
   };

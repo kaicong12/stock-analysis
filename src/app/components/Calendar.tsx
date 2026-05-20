@@ -4,9 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import pageStyles from "../page.module.css";
 import styles from "./Calendar.module.css";
 
-interface PnLData {
-  [day: number]: number;
-}
+type PnLData = Record<number, number>;
 
 interface SyncStatus {
   queryId: string;
@@ -26,6 +24,7 @@ interface SyncResult {
 }
 
 type AssetClassFilter = "all" | "OPT" | "STK";
+type DisplayCurrency = "USD" | "SGD";
 
 // Mirrors COOLDOWN_MS in src/lib/trades/sync.ts. The server is the source of
 // truth — this constant only powers the disabled-button countdown so the user
@@ -106,10 +105,12 @@ function CalendarModal({ onClose }: { onClose: () => void }) {
   const [month, setMonth] = useState(new Date().getMonth() + 1); // 1-indexed
   const [assetClass, setAssetClass] = useState<AssetClassFilter>("all");
   const [data, setData] = useState<PnLData>({});
+  const [baseData, setBaseData] = useState<PnLData>({});
   const [loading, setLoading] = useState(false);
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>("USD");
   // Drives the live cooldown countdown without re-fetching the sync row.
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -122,6 +123,7 @@ function CalendarModal({ onClose }: { onClose: () => void }) {
       if (res.ok) {
         const json = await res.json();
         setData(json.data || {});
+        setBaseData(json.baseData || {});
         setSync(json.sync ?? null);
       }
     } catch (err) {
@@ -163,21 +165,27 @@ function CalendarModal({ onClose }: { onClose: () => void }) {
     return () => clearInterval(id);
   }, []);
 
+
   const cooldownRemaining = computeCooldownRemainingMs(sync, nowMs);
   const syncDisabled = syncing || cooldownRemaining > 0;
 
+  // When SGD is selected, use the per-trade fxRateToBase values that came back
+  // from the server (account base currency at trade time), keyed by day.
+  const activeData = displayCurrency === "SGD" ? baseData : data;
+  const toDisplay = (day: number) => activeData[day] ?? 0;
+
   const { totalPnl, cells } = useMemo(() => {
-    const sum = Object.values(data).reduce((acc, val) => acc + val, 0);
+    const sum = Object.values(activeData).reduce((acc, val) => acc + val, 0);
     const firstDay = new Date(year, month - 1, 1).getDay();
     const daysInMonth = new Date(year, month, 0).getDate();
-    const gridCells: { type: "empty" | "day"; day?: number; pnl?: number }[] = [];
+    const gridCells: { type: "empty" | "day"; day?: number }[] = [];
     for (let i = 0; i < firstDay; i++) gridCells.push({ type: "empty" });
     for (let d = 1; d <= daysInMonth; d++) {
-      gridCells.push({ type: "day", day: d, pnl: data[d] || 0 });
+      gridCells.push({ type: "day", day: d });
     }
     while (gridCells.length % 7 !== 0) gridCells.push({ type: "empty" });
     return { totalPnl: sum, cells: gridCells };
-  }, [data, year, month]);
+  }, [activeData, year, month]);
 
   const monthOptions = useMemo(() => {
     const opts: { year: number; month: number }[] = [];
@@ -289,6 +297,15 @@ function CalendarModal({ onClose }: { onClose: () => void }) {
               <option value="OPT">Options</option>
               <option value="STK">Stocks</option>
             </select>
+            <select
+              className={styles.monthSelect}
+              value={displayCurrency}
+              onChange={(e) => setDisplayCurrency(e.target.value as DisplayCurrency)}
+              title="Display currency"
+            >
+              <option value="USD">USD</option>
+              <option value="SGD">SGD</option>
+            </select>
             <button
               type="button"
               className={styles.syncBtn}
@@ -320,7 +337,7 @@ function CalendarModal({ onClose }: { onClose: () => void }) {
           <div style={{ textAlign: "right" }}>
             <div className={styles.summaryLabel}>Currency</div>
             <div className={`${styles.summaryValue} ${styles.neutral} tabular-nums`} style={{ fontSize: 18 }}>
-              USD
+              {displayCurrency}
             </div>
           </div>
         </div>
@@ -336,13 +353,14 @@ function CalendarModal({ onClose }: { onClose: () => void }) {
             if (cell.type === "empty") {
               return <div key={`empty-${i}`} className={styles.emptyCell} />;
             }
-            const hasData = cell.pnl !== 0;
+            const displayPnl = toDisplay(cell.day!);
+            const hasData = displayPnl !== 0;
             return (
               <div key={`day-${cell.day}`} className={styles.cell}>
                 <div className={`${styles.dayNumber} tabular-nums`}>{cell.day}</div>
                 {hasData ? (
-                  <div className={`${styles.dayPnl} ${colorClass(cell.pnl!)} tabular-nums`}>
-                    {sign(cell.pnl!)}{Math.abs(cell.pnl!).toFixed(2)}
+                  <div className={`${styles.dayPnl} ${colorClass(displayPnl)} tabular-nums`}>
+                    {sign(displayPnl)}{Math.abs(displayPnl).toFixed(2)}
                   </div>
                 ) : (
                   <div className={`${styles.dayPnl} ${styles.neutral} tabular-nums`}>
