@@ -81,12 +81,12 @@ const UPSERT_SQL = `
     transaction_id, account_id, trade_date, asset_category, symbol, description,
     conid, strike, expiry, put_call, multiplier, transaction_type, buy_sell,
     quantity, trade_price, proceeds, ib_commission, net_cash, open_close,
-    fifo_pnl_realized, mtm_pnl, currency, ib_order_id, order_time, raw_json
+    fifo_pnl_realized, mtm_pnl, fx_rate_to_base, currency, ib_order_id, date_time, order_time, raw_json
   ) VALUES (
     @transaction_id, @account_id, @trade_date, @asset_category, @symbol, @description,
     @conid, @strike, @expiry, @put_call, @multiplier, @transaction_type, @buy_sell,
     @quantity, @trade_price, @proceeds, @ib_commission, @net_cash, @open_close,
-    @fifo_pnl_realized, @mtm_pnl, @currency, @ib_order_id, @order_time, @raw_json
+    @fifo_pnl_realized, @mtm_pnl, @fx_rate_to_base, @currency, @ib_order_id, @date_time, @order_time, @raw_json
   )
   ON CONFLICT(transaction_id) DO UPDATE SET
     account_id        = excluded.account_id,
@@ -109,8 +109,10 @@ const UPSERT_SQL = `
     open_close        = excluded.open_close,
     fifo_pnl_realized = excluded.fifo_pnl_realized,
     mtm_pnl           = excluded.mtm_pnl,
+    fx_rate_to_base   = excluded.fx_rate_to_base,
     currency          = excluded.currency,
     ib_order_id       = excluded.ib_order_id,
+    date_time         = excluded.date_time,
     order_time        = excluded.order_time,
     raw_json          = excluded.raw_json,
     updated_at        = CURRENT_TIMESTAMP
@@ -139,8 +141,10 @@ function toUpsertParams(t: FlexTrade): Record<string, unknown> {
     open_close: t.openClose,
     fifo_pnl_realized: t.fifoPnlRealized,
     mtm_pnl: t.mtmPnl,
+    fx_rate_to_base: t.fxRateToBase,
     currency: t.currency,
     ib_order_id: t.ibOrderId,
+    date_time: t.dateTime,
     order_time: t.orderTime,
     raw_json: t.raw,
   };
@@ -285,19 +289,39 @@ export async function syncTradesFromFlex(opts: { force?: boolean } = {}): Promis
   }
 }
 
-function monthBounds(year: number, month: number): { from: string; to: string } {
-  // `to` is exclusive — first day of the next month — so the SQL stays a clean
-  // half-open range and we never have to think about month length.
-  const from = `${year}-${String(month).padStart(2, "0")}-01`;
-  const nextY = month === 12 ? year + 1 : year;
-  const nextM = month === 12 ? 1 : month + 1;
-  const to = `${nextY}-${String(nextM).padStart(2, "0")}-01`;
-  return { from, to };
+// order_time from IBKR Flex is YYYYMMDD;HHMMSS in US Eastern Time (ET) by
+// default. SGT = UTC+8; EDT = UTC-4, so SGT = EDT+12. We use a fixed +12h
+// offset which is exact during US summer (EDT, ~Mar-Nov) and 1h off in winter
+// (EST). Once you change the Flex Query "Time Zone" setting to UTC, swap the
+// offset to +8 and it is exact year-round.
+const ET_TO_SGT_HOURS = 12; // EDT offset; change to 8 after switching Flex to UTC
+
+// Convert an IBKR ET datetime string "YYYYMMDD;HHMMSS" to a SGT calendar date.
+// Prefers dateTime (execution timestamp) over orderTime (submission timestamp).
+// orderTime is stale for GTC orders where submission predates the fill by days;
+// the guard (orderDateStr < tradeDate) catches that and falls back to tradeDate.
+function execToSgtDate(
+  dateTime: string | null,
+  orderTime: string | null,
+  tradeDate: string,
+): string {
+  const raw = dateTime || orderTime;
+  if (!raw) return tradeDate;
+  const m = /^(\d{4})(\d{2})(\d{2});(\d{2})(\d{2})(\d{2})$/.exec(raw);
+  if (!m) return tradeDate;
+  const rawDateStr = `${m[1]}-${m[2]}-${m[3]}`;
+  if (rawDateStr < tradeDate) return tradeDate; // stale GTC submission guard
+  const etMs = Date.UTC(
+    Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+    Number(m[4]), Number(m[5]), Number(m[6])
+  );
+  return new Date(etMs + ET_TO_SGT_HOURS * 3_600_000).toISOString().slice(0, 10);
 }
 
 export interface DayPnl {
   day: number;
-  pnl: number;
+  pnl: number;      // trade currency (USD for US stocks/options)
+  basePnl: number;  // account base currency via fxRateToBase (e.g. SGD)
 }
 
 export function getMonthlyPnL(
@@ -305,25 +329,54 @@ export function getMonthlyPnL(
   month: number,
   assetClass: AssetClassFilter = "all"
 ): DayPnl[] {
-  const { from, to } = monthBounds(year, month);
+  // Extend the fetch window by 1 day on each side. A trade on the last IBKR
+  // (UTC) date of the previous month executed at 4pm UTC is 00:00 SGT, which
+  // could land on the first of this month. The extra day is post-filtered below.
+  const fromDt = new Date(Date.UTC(year, month - 1, 1));
+  fromDt.setUTCDate(fromDt.getUTCDate() - 1);
+  const toDt = new Date(Date.UTC(year, month, 1));
+  toDt.setUTCDate(toDt.getUTCDate() + 1);
+  const from = fromDt.toISOString().slice(0, 10);
+  const to = toDt.toISOString().slice(0, 10);
+
   const db = getDb();
   // CASH rows are FX conversions, never real PnL — exclude them from the "all"
   // bucket so the calendar total matches what the IBKR mobile app shows.
   const classClause =
     assetClass === "all" ? "AND asset_category != 'CASH'" : "AND asset_category = ?";
   const sql = `
-    SELECT trade_date AS date, SUM(fifo_pnl_realized) AS pnl
+    SELECT trade_date, date_time, order_time, fifo_pnl_realized AS pnl, fx_rate_to_base
     FROM ibkr_trades
     WHERE trade_date >= ? AND trade_date < ?
     ${classClause}
-    GROUP BY trade_date
-    ORDER BY trade_date
   `;
   const params: unknown[] = [from, to];
   if (assetClass !== "all") params.push(assetClass);
-  const rows = db.prepare(sql).all(...params) as Array<{ date: string; pnl: number | null }>;
-  return rows.map((r) => ({
-    day: Number(r.date.slice(8, 10)),
-    pnl: r.pnl ?? 0,
-  }));
+
+  const rows = db.prepare(sql).all(...params) as Array<{
+    trade_date: string;
+    date_time: string | null;
+    order_time: string | null;
+    pnl: number | null;
+    fx_rate_to_base: number | null;
+  }>;
+
+  // Group by SGT date: prefer dateTime (execution), fall back to orderTime, then trade_date.
+  const monthPrefix = `${year}-${String(month).padStart(2, "0")}-`;
+  const dayMap = new Map<number, { pnl: number; basePnl: number }>();
+  for (const r of rows) {
+    const sgtDate = execToSgtDate(r.date_time, r.order_time, r.trade_date);
+    if (!sgtDate.startsWith(monthPrefix)) continue;
+    const day = Number(sgtDate.slice(8, 10));
+    const usdPnl = r.pnl ?? 0;
+    // fxRateToBase converts trade currency → account base currency at trade time.
+    // Falls back to 1 if the field wasn't included in the Flex Query.
+    const basePnl = usdPnl * (r.fx_rate_to_base ?? 1);
+    const existing = dayMap.get(day) ?? { pnl: 0, basePnl: 0 };
+    dayMap.set(day, { pnl: existing.pnl + usdPnl, basePnl: existing.basePnl + basePnl });
+  }
+
+  return Array.from(dayMap.entries())
+    .map(([day, { pnl, basePnl }]) => ({ day, pnl, basePnl }))
+    .sort((a, b) => a.day - b.day);
 }

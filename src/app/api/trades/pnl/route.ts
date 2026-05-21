@@ -37,8 +37,12 @@ export async function GET(request: Request) {
   try {
     const rows = getMonthlyPnL(year, month, assetClass);
     const data: Record<number, number> = {};
-    for (const r of rows) data[r.day] = r.pnl;
-    return NextResponse.json({ data, sync: getSyncStatus(), assetClass });
+    const baseData: Record<number, number> = {};
+    for (const r of rows) {
+      data[r.day] = r.pnl;
+      baseData[r.day] = r.basePnl;
+    }
+    return NextResponse.json({ data, baseData, sync: getSyncStatus(), assetClass });
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
