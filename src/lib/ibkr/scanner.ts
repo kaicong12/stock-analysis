@@ -24,17 +24,21 @@ interface RawScannerContract {
 // anyway in case a future gateway version honours it, and post-filter ETFs
 // by name + leveraged-ETF symbol pattern since they come back tagged
 // sec_type: "STK".
-const SCANNER_BODY = {
+const SCANNER_BASE = {
   instrument: "STK",
-  type: "HIGH_OPT_IMP_VOLAT_OVER_HIST",
   location: "STK.US.MAJOR",
-  filter: [
-    { code: "priceAbove", value: 20 },
-    { code: "volumeAbove", value: 500_000 },
-    { code: "optVolumeAbove", value: 1_000 },
-    { code: "marketCapAbove1e6", value: 10_000 },
-  ],
 };
+
+export const VALID_SCAN_TYPES = ["HIGH_OPT_IMP_VOLAT_OVER_HIST", "HIGH_OPT_IMP_VOLAT"] as const;
+export type ScanType = (typeof VALID_SCAN_TYPES)[number];
+const DEFAULT_SCAN_TYPE: ScanType = "HIGH_OPT_IMP_VOLAT_OVER_HIST";
+
+export interface ScannerOptions {
+  size?: number;
+  scanType?: ScanType;
+  minPrice?: number;
+  minOptVolume?: number;
+}
 
 const ETF_NAME_PATTERNS =
   /\b(ETF|ETN|PROSHARES|DIREXION|ISHARES|VANGUARD|SCHWAB|SPDR|INVESCO|FIDELITY|FRANKLIN|WISDOMTREE|VANECK|FIRST TRUST|INDEX FUND|TRUST|FUND)\b/i;
@@ -42,9 +46,27 @@ const ETF_NAME_PATTERNS =
 // in their company name (TQQQ, SOXL, SQQQ, SPXL...). Hard-coded suffix match.
 const LEVERAGED_ETF_RE = /(3X|3XL|UPRO|TQQQ|SQQQ|SOXL|SOXS|SPXL|SPXS|UDOW|SDOW|TNA|TZA|FNGU|FNGD|YINN|YANG)$/i;
 
-export async function runCreditSpreadScanner(size = 50): Promise<ScannerRow[]> {
+export async function runCreditSpreadScanner(options: ScannerOptions = {}): Promise<ScannerRow[]> {
+  const {
+    size = 50,
+    scanType = DEFAULT_SCAN_TYPE,
+    minPrice = 20,
+    minOptVolume = 1_000,
+  } = options;
+  const safeScanType: ScanType = VALID_SCAN_TYPES.includes(scanType) ? scanType : DEFAULT_SCAN_TYPE;
   await ensureIserverBridge();
-  const body = JSON.stringify({ ...SCANNER_BODY, size: String(size) });
+  const reqBody = {
+    ...SCANNER_BASE,
+    type: safeScanType,
+    size: String(size),
+    filter: [
+      { code: "priceAbove", value: minPrice },
+      { code: "volumeAbove", value: 500_000 },
+      { code: "optVolumeAbove", value: minOptVolume },
+      { code: "marketCapAbove1e6", value: 10_000 },
+    ],
+  };
+  const body = JSON.stringify(reqBody);
   const res = await ibkr<RawScannerResponse>("/iserver/scanner/run", {
     method: "POST",
     body,

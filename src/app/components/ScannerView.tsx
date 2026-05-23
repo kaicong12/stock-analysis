@@ -2,11 +2,21 @@
 
 import { useCallback, useMemo, useState } from "react";
 import styles from "../page.module.css";
+import type { ScanType } from "../../lib/ibkr/scanner";
 
 interface ScannerRow {
   symbol: string;
   name: string;
   conid: number;
+}
+
+const MIN_PRICE_FLOOR = 20;
+const MIN_OPT_VOLUME_FLOOR = 500;
+const SIZE_FLOOR = 10;
+const SIZE_CEIL = 100;
+
+function clamp(value: number, min: number, max: number = Infinity): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 export function ScannerView({
@@ -19,15 +29,32 @@ export function ScannerView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Filter params — number inputs held as strings to avoid mid-typing snap desync
+  const [scanType, setScanType] = useState<ScanType>("HIGH_OPT_IMP_VOLAT_OVER_HIST");
+  const [minPrice, setMinPrice] = useState<string>("20");
+  const [minOptVolume, setMinOptVolume] = useState<string>("1000");
+  const [size, setSize] = useState<string>("50");
+
   const run = useCallback(async () => {
     setLoading(true);
     setError(null);
     setSelected(new Set());
+    const parsedSize = clamp(Number(size) || 50, SIZE_FLOOR, SIZE_CEIL);
+    const parsedMinPrice = clamp(Number(minPrice) || MIN_PRICE_FLOOR, MIN_PRICE_FLOOR);
+    const parsedMinOptVolume = clamp(
+      Number(minOptVolume) || 1000,
+      MIN_OPT_VOLUME_FLOOR,
+    );
     try {
       const res = await fetch("/api/scanner", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ size: 50 }),
+        body: JSON.stringify({
+          size: parsedSize,
+          scanType,
+          minPrice: parsedMinPrice,
+          minOptVolume: parsedMinOptVolume,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
@@ -38,7 +65,7 @@ export function ScannerView({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [size, scanType, minPrice, minOptVolume]);
 
   const toggle = useCallback((symbol: string) => {
     setSelected((prev) => {
@@ -72,11 +99,74 @@ export function ScannerView({
       <header className={styles.batchHeader}>
         <h1 className="font-display">Scanner</h1>
         <p>
-          Large-cap US majors with elevated IV vs. history. Filters baked from your trading
-          profile: price &gt; $20, daily volume &gt; 500k, option volume &gt; 1k, market cap &ge; $10B.
-          Sorted by IBKR&apos;s native IV-over-history ranking.
+          Large-cap US majors screened for options volatility candidates. Daily volume &gt; 500k
+          and market cap &ge; $10B are fixed per trading profile. Adjust the parameters below to
+          refine candidates for credit spread entry.
         </p>
       </header>
+
+      <section className={styles.scannerFilters}>
+        <div className={styles.scannerFilterGroup}>
+          <label htmlFor="scan-type">Scan Type</label>
+          <select
+            id="scan-type"
+            className={styles.journalSelect}
+            value={scanType}
+            onChange={(e) => setScanType(e.target.value as ScanType)}
+          >
+            <option value="HIGH_OPT_IMP_VOLAT_OVER_HIST">IV &gt; History (IVR)</option>
+            <option value="HIGH_OPT_IMP_VOLAT">High IV (Absolute)</option>
+          </select>
+        </div>
+        <div className={styles.scannerFilterGroup}>
+          <label htmlFor="min-price">Min Price ($)</label>
+          <input
+            id="min-price"
+            type="number"
+            className={styles.journalInput}
+            min={MIN_PRICE_FLOOR}
+            step={1}
+            value={minPrice}
+            onChange={(e) => setMinPrice(e.target.value)}
+            onBlur={() =>
+              setMinPrice(String(clamp(Number(minPrice) || MIN_PRICE_FLOOR, MIN_PRICE_FLOOR)))
+            }
+          />
+        </div>
+        <div className={styles.scannerFilterGroup}>
+          <label htmlFor="min-opt-vol">Min Option Volume</label>
+          <input
+            id="min-opt-vol"
+            type="number"
+            className={styles.journalInput}
+            min={MIN_OPT_VOLUME_FLOOR}
+            step={100}
+            value={minOptVolume}
+            onChange={(e) => setMinOptVolume(e.target.value)}
+            onBlur={() =>
+              setMinOptVolume(
+                String(clamp(Number(minOptVolume) || 1000, MIN_OPT_VOLUME_FLOOR)),
+              )
+            }
+          />
+        </div>
+        <div className={styles.scannerFilterGroup}>
+          <label htmlFor="result-count">Result Count</label>
+          <input
+            id="result-count"
+            type="number"
+            className={styles.journalInput}
+            min={SIZE_FLOOR}
+            max={SIZE_CEIL}
+            step={10}
+            value={size}
+            onChange={(e) => setSize(e.target.value)}
+            onBlur={() =>
+              setSize(String(clamp(Number(size) || 50, SIZE_FLOOR, SIZE_CEIL)))
+            }
+          />
+        </div>
+      </section>
 
       <section className={styles.scannerControls}>
         <button className={styles.btnPrimary} onClick={run} disabled={loading}>
