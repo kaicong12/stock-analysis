@@ -14,12 +14,15 @@ import type {
 } from "../lib/types";
 import { classifyPortfolio } from "../lib/positions/groups";
 import { annotateGroups } from "../lib/positions/triggers";
+import { loadBatchResult, saveBatchSession, type BatchTickerPayload } from "../lib/batch/cache";
+import { BatchView } from "./components/BatchView";
 import { Hero } from "./components/Hero";
 import { HeldOptionsDetail } from "./components/HeldOptionsDetail";
 import { LeftRail } from "./components/LeftRail";
 import { Panel, PANEL_LABELS } from "./components/Panel";
+import { ScannerView } from "./components/ScannerView";
 import { SkeletonBlock, Welcome } from "./components/Welcome";
-import { Topbar, type AuthStatus } from "./components/Topbar";
+import { Topbar, type AuthStatus, type TabKey } from "./components/Topbar";
 import { VerdictCard } from "./components/VerdictCard";
 import {
   IconCapital,
@@ -71,7 +74,8 @@ type Action =
   | { type: "verdict_error"; message: string }
   | { type: "pick_loading" }
   | { type: "pick_done"; pick: ContractPick | null; error?: string }
-  | { type: "set_portfolio"; p: Portfolio; heldGroups: HeldGroup[] };
+  | { type: "set_portfolio"; p: Portfolio; heldGroups: HeldGroup[] }
+  | { type: "hydrate_from_cache"; payload: BatchTickerPayload };
 
 const emptyPanels: Record<PanelKey, PanelState> = PANELS.reduce(
   (acc, k) => { acc[k] = { status: "idle" }; return acc; },
@@ -171,6 +175,32 @@ function reducer(state: State, a: Action): State {
         portfolio: a.p,
         heldGroups: state.ticker ? state.heldGroups : a.heldGroups,
       };
+    case "hydrate_from_cache": {
+      const panelsReady: Record<PanelKey, PanelState> = PANELS.reduce(
+        (acc, k) => {
+          acc[k] = { status: "ready", summary: a.payload.panels[k] };
+          return acc;
+        },
+        {} as Record<PanelKey, PanelState>,
+      );
+      return {
+        ...state,
+        status: "done",
+        topError: null,
+        pickError: null,
+        errors: [],
+        ticker: a.payload.ticker,
+        symbol: a.payload.symbol,
+        tickerInput: a.payload.ticker,
+        snapshot: a.payload.snapshot,
+        portfolio: a.payload.portfolio ?? state.portfolio,
+        heldPositions: a.payload.heldPositions,
+        heldGroups: a.payload.heldGroups,
+        panels: panelsReady,
+        verdict: a.payload.verdict,
+        nextEarningsDate: a.payload.nextEarningsDate,
+      };
+    }
   }
 }
 
@@ -190,6 +220,7 @@ export default function Page() {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const abortRef = useRef<AbortController | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(null);
+  const [activeTab, setActiveTab] = useState<TabKey>("single");
 
   // Initial portfolio load (independent of any search) so the rail populates immediately.
   useEffect(() => {
@@ -229,10 +260,21 @@ export default function Page() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  const onSubmit = useCallback(async (e: FormEvent) => {
-    e.preventDefault();
-    const t = state.tickerInput.trim();
+  const runAnalysis = useCallback(async (rawTicker: string, opts?: { allowCache?: boolean }) => {
+    const t = rawTicker.trim();
     if (!t) return;
+
+    // Cache hit is opt-in so the Single search bar always refetches; only the
+    // URL-ticker hydration on mount sets allowCache=true.
+    if (opts?.allowCache) {
+      const cached = loadBatchResult(t);
+      if (cached) {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        dispatch({ type: "hydrate_from_cache", payload: cached });
+        return;
+      }
+    }
 
     abortRef.current?.abort();
     abortRef.current = new AbortController();
@@ -333,7 +375,47 @@ export default function Page() {
     } else {
       dispatch({ type: "pick_done", pick: null });
     }
-  }, [state.tickerInput]);
+  }, []);
+
+  const onSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault();
+      void runAnalysis(state.tickerInput);
+    },
+    [runAnalysis, state.tickerInput],
+  );
+
+  const sendToBatch = useCallback((tickers: string[]) => {
+    // Hand off via sessionStorage so BatchView reads the new tickers via its
+    // own session-restore path on mount (no prop drilling + no Effect-from-prop
+    // anti-pattern in the consumer).
+    saveBatchSession({ input: tickers.join(", "), rows: [] });
+    setActiveTab("batch");
+  }, []);
+
+  const changeTab = useCallback((next: TabKey) => {
+    setActiveTab((prev) => {
+      // Cancel in-flight Single-tab work when the user switches away — the
+      // user doesn't see the result anyway, and continuing wastes LLM tokens.
+      if (prev === "single" && next !== "single") {
+        abortRef.current?.abort();
+        abortRef.current = null;
+      }
+      return next;
+    });
+  }, []);
+
+  // New-tab landing from a Batch card click: the URL carries ?ticker=, and
+  // sessionStorage was inherited from the opener, so we hydrate Single from
+  // cache without a refetch.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const initialTicker = params.get("ticker");
+    if (!initialTicker) return;
+    dispatch({ type: "set_input", v: initialTicker });
+    void runAnalysis(initialTicker, { allowCache: true });
+  }, [runAnalysis]);
 
   const heroData = useMemo<Verdict | null>(() => state.verdict, [state.verdict]);
 
@@ -345,16 +427,25 @@ export default function Page() {
         onSubmit={onSubmit}
         loading={state.status !== "idle" && state.status !== "done" && state.status !== "error"}
         authStatus={authStatus}
+        activeTab={activeTab}
+        onTabChange={changeTab}
       />
       <div className={styles.body}>
         <LeftRail
           portfolio={state.portfolio}
           heldGroups={state.heldGroups}
           searchedTicker={state.ticker}
-          onPickTicker={(t) => dispatch({ type: "set_input", v: t })}
+          onPickTicker={(t) => {
+            setActiveTab("single");
+            dispatch({ type: "set_input", v: t });
+          }}
         />
         <main className={`${styles.main} scrollbar-slim`}>
           <div className={styles.mainInner}>
+            {activeTab === "scanner" && <ScannerView onSendToBatch={sendToBatch} />}
+            {activeTab === "batch" && <BatchView />}
+            {activeTab === "single" && (
+              <>
             {state.snapshot ? (
               <Hero data={{
                 ticker: state.ticker,
@@ -438,6 +529,8 @@ export default function Page() {
                   <span key={i}>{e.source}: {e.message}</span>
                 ))}
               </div>
+            )}
+              </>
             )}
           </div>
         </main>

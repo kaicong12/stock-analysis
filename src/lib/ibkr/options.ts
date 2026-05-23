@@ -13,6 +13,7 @@
 //   6. marketdata/snapshot (×2) → batch quotes + Greeks. First call seeds the
 //                                  stream, second call returns full data.
 
+import { Semaphore, runWithConcurrency } from "../concurrency";
 import { ensureIserverBridge, ibkr } from "./client";
 import {
   getKnownInfoRows,
@@ -53,30 +54,6 @@ const INFO_INFLIGHT = new Map<string, Promise<SecdefInfoRow[]>>();
 // caps simultaneous in-flight calls so the burst spreads over a few seconds
 // rather than triggering 429s. Cache hits bypass the limiter — only actual
 // HTTP calls are gated.
-
-class Semaphore {
-  private active = 0;
-  private waiters: (() => void)[] = [];
-  constructor(private readonly max: number) {}
-  acquire(): Promise<() => void> {
-    return new Promise<() => void>((resolve) => {
-      const tryAcquire = () => {
-        if (this.active < this.max) {
-          this.active++;
-          resolve(() => this.release());
-        } else {
-          this.waiters.push(tryAcquire);
-        }
-      };
-      tryAcquire();
-    });
-  }
-  private release(): void {
-    this.active--;
-    const next = this.waiters.shift();
-    if (next) next();
-  }
-}
 
 const SECDEF_LIMITER = new Semaphore(3);
 
@@ -359,24 +336,6 @@ function monthDte(code: string, todayMs: number): number {
   if (mon < 0 || !Number.isFinite(yy)) return -1;
   const mid = Date.UTC(yy, mon, 15);
   return Math.round((mid - todayMs) / 86_400_000);
-}
-
-async function runWithConcurrency<I, O>(
-  items: I[],
-  n: number,
-  fn: (item: I, idx: number) => Promise<O>,
-): Promise<O[]> {
-  const out: O[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(n, Math.max(1, items.length)) }, async () => {
-    while (true) {
-      const i = next++;
-      if (i >= items.length) return;
-      out[i] = await fn(items[i], i);
-    }
-  });
-  await Promise.all(workers);
-  return out;
 }
 
 export interface NarrowChainOptions {
