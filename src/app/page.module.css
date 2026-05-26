@@ -1491,9 +1491,6 @@
   border-color: var(--primary);
   background: var(--surface-container-high);
 }
-.batchCard:disabled {
-  cursor: default;
-}
 
 .batchCardHeader {
   display: flex;
@@ -1557,12 +1554,57 @@
   font-variant-numeric: tabular-nums lining-nums;
 }
 .batchCardError {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   font-size: 11px;
   color: var(--bearish);
   line-height: 1.35;
 }
+.batchCardRetryBtn {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: var(--radius);
+  background: transparent;
+  border: 1px solid var(--bearish);
+  color: var(--bearish);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.batchCardRetryBtn:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.12);
+}
+.batchCardRetryBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* ----- Scanner view ----- */
+.scannerFilters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+}
+.scannerFilterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.scannerFilterGroup label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
 .scannerWrap {
   display: flex;
   flex-direction: column;
