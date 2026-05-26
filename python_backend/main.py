@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
-from moomoo import OpenQuoteContext, RET_OK
+from moomoo import OpenQuoteContext, OptionType, RET_OK
 
 OPEND_HOST = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
 OPEND_PORT = int(os.getenv("FUTU_OPEND_PORT", "11111"))
@@ -109,6 +109,131 @@ def derivatives_anomaly(
     dimensions: list[str] | None = Query(default=None),
 ):
     return _call("get_derivative_unusual", symbol, time_range, _split(dimensions), language_id)
+
+
+# ---- Options ----------------------------------------------------------------
+# Moomoo Lv1 (real-time OPRA on US options) covers everything below:
+# - get_option_expiration_date → expiry list
+# - get_option_chain(start, end) → strike ladder across a date window
+# - get_market_snapshot([opt_codes]) → bid/ask/last/IV/greeks/OI in one shot
+# No polling, no chunking, no rate-limit dance — the IBKR options module this
+# replaces was 540 lines of mitigations for snapshot quirks that don't exist
+# here.
+
+
+@app.get("/options/expiries")
+def option_expiries(symbol: str = Query(..., description="e.g. US.AAPL")):
+    with quote_ctx() as ctx:
+        ret, data = ctx.get_option_expiration_date(code=symbol)
+    if ret != RET_OK:
+        raise HTTPException(status_code=502, detail=f"get_option_expiration_date: {data}")
+    return {"symbol": symbol, "data": _normalize(data)}
+
+
+def _option_type_enum(s: str | None):
+    if not s:
+        return OptionType.ALL
+    s = s.upper()
+    if s == "CALL" or s == "C":
+        return OptionType.CALL
+    if s == "PUT" or s == "P":
+        return OptionType.PUT
+    return OptionType.ALL
+
+
+@app.get("/options/chain")
+def option_chain(
+    symbol: str = Query(..., description="e.g. US.AAPL"),
+    start: str = Query(..., description="ISO date, e.g. 2026-06-10"),
+    end: str = Query(..., description="ISO date, e.g. 2026-07-17"),
+    option_type: str | None = Query(default=None, description="CALL|PUT|ALL"),
+    min_strike: float | None = None,
+    max_strike: float | None = None,
+    include_snapshot: bool = True,
+):
+    with quote_ctx() as ctx:
+        ret, chain = ctx.get_option_chain(
+            code=symbol,
+            start=start,
+            end=end,
+            option_type=_option_type_enum(option_type),
+        )
+        if ret != RET_OK:
+            raise HTTPException(status_code=502, detail=f"get_option_chain: {chain}")
+        rows = _normalize(chain) if chain is not None else []
+        if not isinstance(rows, list):
+            rows = []
+        if min_strike is not None:
+            rows = [r for r in rows if isinstance(r.get("strike_price"), (int, float)) and r["strike_price"] >= min_strike]
+        if max_strike is not None:
+            rows = [r for r in rows if isinstance(r.get("strike_price"), (int, float)) and r["strike_price"] <= max_strike]
+
+        snap_by_code: dict[str, dict] = {}
+        if include_snapshot and rows:
+            codes = [r["code"] for r in rows if isinstance(r.get("code"), str)]
+            # Moomoo's snapshot endpoint accepts up to ~400 codes per call in
+            # practice. Narrow chains (±25% strikes × a few expiries) sit well
+            # under that; chunk defensively anyway.
+            CHUNK = 200
+            for i in range(0, len(codes), CHUNK):
+                batch = codes[i : i + CHUNK]
+                ret, snap = ctx.get_market_snapshot(batch)
+                if ret != RET_OK:
+                    raise HTTPException(status_code=502, detail=f"get_market_snapshot: {snap}")
+                snap_rows = _normalize(snap) if snap is not None else []
+                if isinstance(snap_rows, list):
+                    for s in snap_rows:
+                        c = s.get("code")
+                        if isinstance(c, str):
+                            snap_by_code[c] = s
+
+    contracts = []
+    for r in rows:
+        code = r.get("code")
+        s = snap_by_code.get(code, {}) if isinstance(code, str) else {}
+        contracts.append({
+            "code": code,
+            "name": r.get("name"),
+            "strike": r.get("strike_price"),
+            "side": "C" if str(r.get("option_type", "")).upper() == "CALL" else "P",
+            "expiry": r.get("strike_time"),
+            "lot_size": r.get("lot_size"),
+            "expiration_cycle": r.get("expiration_cycle"),
+            # Snapshot fields — present when include_snapshot=true and snapshot succeeded.
+            "last_price": s.get("last_price"),
+            "bid_price": s.get("bid_price"),
+            "ask_price": s.get("ask_price"),
+            "volume": s.get("volume"),
+            "open_interest": s.get("option_open_interest"),
+            "implied_volatility": s.get("option_implied_volatility"),
+            "delta": s.get("option_delta"),
+            "gamma": s.get("option_gamma"),
+            "vega": s.get("option_vega"),
+            "theta": s.get("option_theta"),
+            "rho": s.get("option_rho"),
+            "update_time": s.get("update_time"),
+        })
+
+    return {"symbol": symbol, "start": start, "end": end, "contracts": contracts}
+
+
+@app.get("/options/snapshot")
+def option_snapshot(codes: str = Query(..., description="comma-separated moomoo option codes")):
+    code_list = [c.strip() for c in codes.split(",") if c.strip()]
+    if not code_list:
+        raise HTTPException(status_code=400, detail="codes is required")
+    out: list[dict] = []
+    with quote_ctx() as ctx:
+        CHUNK = 200
+        for i in range(0, len(code_list), CHUNK):
+            batch = code_list[i : i + CHUNK]
+            ret, snap = ctx.get_market_snapshot(batch)
+            if ret != RET_OK:
+                raise HTTPException(status_code=502, detail=f"get_market_snapshot: {snap}")
+            rows = _normalize(snap) if snap is not None else []
+            if isinstance(rows, list):
+                out.extend(rows)
+    return {"codes": code_list, "data": out}
 
 
 @app.get("/snapshot")

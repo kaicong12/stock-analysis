@@ -36,7 +36,7 @@ yarn-error.log*
 # dev script logs
 .dev-*.log
 
-# IBKR secdef SQLite store (conid, strikes, secdef/info — rebuildable from IBKR)
+# Local SQLite (trade journal + Flex trade-history sync). Contains user state.
 /data/
 
 # IBKR Client Portal Gateway distribution (third-party binaries; download separately)

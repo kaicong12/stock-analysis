@@ -255,8 +255,7 @@ export interface ContractLeg {
   delta: number | null;
   theta: number | null;
   vega: number | null;
-  conid?: number;
-  ratio?: number; // +1 for BUY, -1 for SELL in combo orders
+  ratio?: number; // +1 for BUY, -1 for SELL in combo packaging
 }
 
 // Roll plan for ROLL_OUT — describes the close-old + open-new package as a
@@ -339,8 +338,10 @@ export interface Verdict {
 // ----- Option chain (input to the contract picker) -----
 
 export interface OptionContract {
+  // moomoo option code, e.g. "US.AAPL260610C250000". Used both as a stable id
+  // (Gemini gets handed this and echoes it back to identify legs) and as the
+  // key for moomoo's snapshot endpoint.
   code: string;
-  conid: number;
   side: "C" | "P";
   strike: number;
   last: number | null;
@@ -386,57 +387,19 @@ export interface DashboardData {
   errors: { source: string; message: string }[];
 }
 
-// ----- Order placement (IBKR Client Portal) -----
+// ----- Trade-logging modal payloads -----
+//
+// The repo used to place orders directly via IBKR's Client Portal. That code
+// is gone — the user places trades in IBKR/TWS directly (more trustworthy
+// quotes) and then comes back to log the trade in the journal. These types
+// describe the input to that journal-logging flow.
 
-// A leg as sent to the order builder. ratio is signed: +1 = BUY, -1 = SELL.
-// For a covered call the user's stock leg isn't included; just the option leg.
-export interface OrderLeg {
-  conid: number;
+// A leg of a closing transaction the user is about to log. Ratio is signed:
+// +1 = was closed by BUY, -1 = was closed by SELL.
+export interface JournalCloseLeg {
   side: "C" | "P";
   strike: number;
   expiry: string;            // ISO YYYY-MM-DD
-  ratio: 1 | -1;             // +1 BUY_TO_OPEN/CLOSE, -1 SELL_TO_OPEN/CLOSE
-  // Per-leg last/mid hint used by the modal to display an initial credit/debit
-  // even when the combo doesn't have a chain quote of its own.
+  ratio: 1 | -1;
   lastPrice?: number | null;
-}
-
-// What the user is asking the backend to place. The three intents map to
-// distinct payload shapes inside buildPlacePayload, but share the editable
-// surface (price/qty/tif/outsideRTH).
-export type OrderIntent =
-  | { kind: "open-pick"; pick: ContractPick }   // new entry from contract picker
-  | { kind: "roll"; pick: ContractPick }        // ROLL_OUT (closingLegs + openingLegs)
-  | { kind: "close-held"; legs: OrderLeg[]; strategy: string; ticker: string; expiry: string };
-
-export interface OrderPlaceRequest {
-  intent: OrderIntent;
-  symbol: string;             // underlying symbol, used to resolve underConid for BAG combos
-  limitPrice: number;         // signed net price (per spread). Positive = debit, negative = credit
-  quantity: number;           // contracts
-  tif: "DAY" | "GTC";
-  outsideRTH: boolean;
-}
-
-export interface OrderPlaceResponse {
-  orderId: string;
-  status: string;             // "Submitted" / "PreSubmitted" / "Filled" / ...
-  warnings: string[];         // any warning messages we auto-confirmed
-}
-
-export interface OrderStatus {
-  orderId: string;
-  status: string;             // "Submitted" / "Filled" / "Cancelled" / ...
-  avgFillPrice: number | null;
-  filledQuantity: number;
-  totalQuantity: number;
-}
-
-// Legacy interface, kept for compatibility — prefer OrderPlaceRequest above.
-export interface OrderPayload {
-  accountId: string;
-  symbol: string;
-  pick: ContractPick;
-  tif: "DAY" | "GTC";
-  outsideRTH: boolean;
 }

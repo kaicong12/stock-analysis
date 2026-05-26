@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { HeldGroup, OrderLeg, Position } from "../../lib/types";
+import type { HeldGroup, JournalCloseLeg, Position } from "../../lib/types";
 import type { JournalStrategy, JournalTradeWithLegs } from "../../lib/journal/types";
 import styles from "../page.module.css";
 import { fmtMoney, fmtNum, fmtSigned } from "./format";
@@ -103,14 +103,13 @@ const HELD_TO_JOURNAL_STRATEGY: Partial<Record<HeldGroup["kind"], JournalStrateg
   CUSTOM: "CUSTOM",
 };
 
-// Build the OrderLeg[] needed to close a held option group. Each leg's ratio
-// is the *closing* sign — opposite of the held position's sign (held +n long
-// closes with ratio -1 SELL; held -n short closes with ratio +1 BUY).
-function legsForClose(g: HeldGroup): OrderLeg[] {
+// Closing-leg metadata for the journal modal. Each leg's ratio is the *closing*
+// sign — opposite of the held position's sign (held +n long closes with
+// ratio -1 SELL; held -n short closes with ratio +1 BUY).
+function legsForClose(g: HeldGroup): JournalCloseLeg[] {
   return g.legs
     .filter((l) => l.assetClass === "OPT" && l.putOrCall && l.strike != null && l.expiry)
-    .map<OrderLeg>((l) => ({
-      conid: l.conid,
+    .map<JournalCloseLeg>((l) => ({
       side: (l.putOrCall === "C" ? "C" : "P") as "C" | "P",
       strike: l.strike as number,
       expiry: l.expiry as string,
@@ -265,7 +264,7 @@ function HeldOptionGroupCard({ group: g }: { group: HeldGroup }) {
           onClick={startClose}
           disabled={closing}
         >
-          {closing ? "Preparing…" : "Close position"}
+          {closing ? "Preparing…" : "Log close to journal"}
         </button>
       </div>
       {intent && (

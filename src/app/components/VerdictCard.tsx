@@ -412,12 +412,12 @@ function ContractPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPic
             disabled={pick.earningsInWindow === true}
             title={
               pick.earningsInWindow === true
-                ? "Chosen expiry straddles an earnings print — order disabled for conservative profile."
+                ? "Chosen expiry straddles an earnings print — disabled for conservative profile."
                 : undefined
             }
             style={pick.earningsInWindow === true ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
           >
-            Place order
+            Log to journal
           </button>
         </div>
       )}
@@ -480,7 +480,7 @@ function RollPickCard({ pick, verdict, ticker, symbol }: { pick: ContractPick; v
           className={styles.btnPrimary}
           onClick={() => setModalOpen(true)}
         >
-          Place roll order
+          Log roll to journal
         </button>
       </div>
       {modalOpen && (
