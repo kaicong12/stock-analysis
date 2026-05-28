@@ -5,6 +5,7 @@ import type {
   FundamentalsData,
   FundamentalsResult,
   SnapshotResult,
+  VolSummary,
 } from "../types";
 
 interface RawAnomalyResponse {
@@ -82,6 +83,62 @@ interface RawFundamentalsResponse {
 export async function getFundamentals(symbol: string): Promise<FundamentalsResult> {
   const r = await callSidecar<RawFundamentalsResponse>("/fundamentals", { symbol });
   return { symbol: r.symbol, yfTicker: r.yfTicker, data: r.data };
+}
+
+interface RawVolSummaryResponse {
+  symbol: string;
+  yfTicker: string;
+  spot: number;
+  expiry_used: string;
+  dte: number;
+  atm_iv: number | null;
+  atm_iv_call: number | null;
+  atm_iv_put: number | null;
+  atm_strike_call: number | null;
+  atm_strike_put: number | null;
+  hv_30: number | null;
+  hv_60: number | null;
+  iv_hv_ratio: number | null;
+  skew_25d: number | null;
+  skew_25d_call_strike: number | null;
+  skew_25d_put_strike: number | null;
+  hv_sample_size: number;
+}
+
+// Structured ATM IV + HV30 + 25Δ skew for a single ticker. The derivatives
+// panel feeds these in alongside the anomaly text so the model cites hard
+// numbers rather than inferring them from prose. Returns null when the
+// sidecar fails — derivatives panel still runs on the anomaly text alone.
+export async function getVolSummary(
+  symbol: string,
+  targetDte = 30,
+): Promise<VolSummary | null> {
+  try {
+    const r = await callSidecar<RawVolSummaryResponse>("/options/vol-summary", {
+      symbol,
+      target_dte: String(targetDte),
+    });
+    return {
+      symbol: r.symbol,
+      spot: r.spot,
+      expiryUsed: r.expiry_used,
+      dte: r.dte,
+      atmIv: r.atm_iv,
+      atmIvCall: r.atm_iv_call,
+      atmIvPut: r.atm_iv_put,
+      atmStrikeCall: r.atm_strike_call,
+      atmStrikePut: r.atm_strike_put,
+      hv30: r.hv_30,
+      hv60: r.hv_60,
+      ivHvRatio: r.iv_hv_ratio,
+      skew25d: r.skew_25d,
+      skew25dCallStrike: r.skew_25d_call_strike,
+      skew25dPutStrike: r.skew_25d_put_strike,
+      hvSampleSize: r.hv_sample_size,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getSnapshot(symbol: string): Promise<SnapshotResult> {

@@ -124,6 +124,28 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
   (db) => {
     db.exec(`ALTER TABLE ibkr_trades ADD COLUMN date_time TEXT;`);
   },
+  (db) => {
+    // Daily closes cache for the python sidecar's HV computation. The sidecar
+    // (a separate process) reads + writes these tables directly via sqlite3 —
+    // the file is shared, WAL mode handles concurrent access. We use
+    // CREATE TABLE IF NOT EXISTS here (atypical for migrations) because the
+    // sidecar may have run first and created the tables defensively on its
+    // own startup; the schema is identical either way.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS daily_closes (
+        yf_ticker   TEXT NOT NULL,
+        close_date  TEXT NOT NULL,
+        close       REAL NOT NULL,
+        PRIMARY KEY (yf_ticker, close_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS daily_closes_sync (
+        yf_ticker          TEXT PRIMARY KEY,
+        last_refresh_date  TEXT NOT NULL,
+        bars_count         INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  },
 ];
 
 function runMigrations(db: Database.Database): void {

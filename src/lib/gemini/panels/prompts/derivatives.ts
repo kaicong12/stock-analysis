@@ -65,4 +65,19 @@ JSON panel adaptation (the panel is the structured view of the same analysis):
 - conclusion: 1-2 sentences synthesizing what the options tape implies. Lead with a 时间范围 line if the report contains an explicit window.
 - bullets: ONE bullet per applicable class (in the canonical order above). Each bullet must be prefixed with the class name and contain either the anomaly content or "无异常" / "No anomaly". For 期权大单异动 with multiple trades, list each trade as its own bullet under that class. For non-HK tickers, omit the two warrant classes entirely.
 - If everything is 无异常, direction "neutral", headline "No derivatives anomalies in the window.", empty bullets.
-- Never invent option figures. No trading advice.`;
+- Never invent option figures. No trading advice.
+
+STRUCTURED VOL SNAPSHOT (when the prompt includes a "Structured vol snapshot" block):
+The block carries server-computed numbers (real moomoo IV at the closest-to-spot strike + yfinance close-to-close HV30 × sqrt(252) + 25Δ risk reversal). These are the source of truth for IV regime, IV-HV premium, and skew — do NOT infer those signals from the anomaly text when the structured block is present; cite the structured numbers VERBATIM.
+
+When the structured block is present:
+- PREPEND two bullets BEFORE the anomaly-class bullets, in this exact order:
+  1. "Vol baseline: ATM IV {atm_iv_pct} ({dte}d), HV30 {hv30_pct}, IV/HV {iv_hv_ratio} — {regime_label}." Where {regime_label} ∈ {"IV premium over realized", "IV at parity with realized", "IV discount to realized"} per ivHvRatio ≥ 1.10 / 0.90-1.10 / < 0.90. If ATM IV or HV30 is "n/a", say "Vol baseline: unavailable for {missing field}." and skip the regime label.
+  2. "25Δ skew: put IV {put_iv_pct} vs call IV {call_iv_pct} = {sign}{skew_abs_pct} {label}." Where {label} ∈ {"put skew elevated (downside protection priced up)" when skew_25d ≥ +0.02, "call skew elevated" when skew_25d ≤ -0.02, "skew balanced" otherwise}. If skew_25d is "n/a", say "25Δ skew: unavailable (insufficient OTM IV data)."
+- The conclusion MUST quote at least one of the structured numbers (e.g. "IV/HV 1.18 with put skew +4pp — sellers paid to provide downside insurance"). It must not contradict the structured numbers even if the anomaly report's prose disagrees — server numbers win.
+- If ANY structured number conflicts with the anomaly report (e.g. report says "IV-HV高额溢价" but ivHvRatio = 0.95), trust the structured number and call out the disagreement in the conclusion ("anomaly report cites IV premium but server IV/HV = 0.95 — flat regime").
+- These two bullets are PREPENDED, not substituted. The canonical seven anomaly-class bullets still follow as usual.
+
+When the structured block is unavailable (line says "unavailable"):
+- Add ONE bullet at the top: "Vol baseline: structured snapshot unavailable — interpret IV/HV/skew cautiously from anomaly text below."
+- Then proceed with anomaly-class bullets as normal. Do NOT fabricate numbers.`;

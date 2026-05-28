@@ -54,6 +54,29 @@ export interface SnapshotResult {
   raw: Record<string, unknown>;
 }
 
+// Structured volatility snapshot from the sidecar's /options/vol-summary.
+// All IV/HV values are decimals (0.32 = 32% annualized). Feeds the derivatives
+// panel with hard numbers so the model doesn't have to infer IV regime,
+// IV-HV premium, or skew from the anomaly report's prose.
+export interface VolSummary {
+  symbol: string;
+  spot: number;
+  expiryUsed: string;            // ISO date of the expiry sampled for IV
+  dte: number;                   // actual DTE of expiryUsed
+  atmIv: number | null;          // avg(call, put) IV at the closest-to-spot strike
+  atmIvCall: number | null;
+  atmIvPut: number | null;
+  atmStrikeCall: number | null;
+  atmStrikePut: number | null;
+  hv30: number | null;           // 30 trading-day HV; sqrt(252)-annualized
+  hv60: number | null;
+  ivHvRatio: number | null;      // atmIv / hv30; >1.10 = meaningful IV premium
+  skew25d: number | null;        // putIv(Δ≈-0.25) - callIv(Δ≈+0.25)
+  skew25dCallStrike: number | null;
+  skew25dPutStrike: number | null;
+  hvSampleSize: number;
+}
+
 // Fundamentals from yfinance (via python sidecar). All numeric fields are
 // nullable — yfinance returns sparse data for non-US listings, ETFs, and
 // freshly-IPO'd names.

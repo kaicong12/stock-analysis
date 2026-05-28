@@ -1,5 +1,5 @@
 import { getStockFeed, newsForDigest, searchNews } from "../moomoo/httpApi";
-import { getAnomaly, getFundamentals } from "../moomoo/sidecar";
+import { getAnomaly, getFundamentals, getVolSummary } from "../moomoo/sidecar";
 import type { PanelSummary } from "../types";
 import type { PanelKey } from "../batch/protocol";
 import {
@@ -38,8 +38,14 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
       return { summary: await analyzeTechnical(data, ctx) };
     }
     case "derivatives": {
-      const data = await getAnomaly("derivatives", symbol);
-      return { summary: await analyzeDerivatives(data, ctx) };
+      // Fetch the anomaly report and the structured vol summary in parallel —
+      // they hit different upstreams (moomoo /anomaly/derivatives vs.
+      // moomoo chain + yfinance daily closes) and the panel uses both.
+      const [data, vol] = await Promise.all([
+        getAnomaly("derivatives", symbol),
+        getVolSummary(symbol),
+      ]);
+      return { summary: await analyzeDerivatives(data, ctx, vol) };
     }
     case "news": {
       const data = await searchNews(ticker);
