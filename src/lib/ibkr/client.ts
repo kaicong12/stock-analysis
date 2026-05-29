@@ -374,20 +374,3 @@ export function findHeldPositions(portfolio: Portfolio | null, t: string): Posit
   });
 }
 
-export interface OrderPayloadWrapper {
-  orders: any[];
-}
-
-export async function placeOrder(accountId: string, payload: OrderPayloadWrapper): Promise<any[]> {
-  return ibkr<any[]>(`/iserver/account/${accountId}/orders`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function replyOrder(replyId: string, confirmed: boolean): Promise<any[]> {
-  return ibkr<any[]>(`/iserver/reply/${replyId}`, {
-    method: "POST",
-    body: JSON.stringify({ confirmed }),
-  });
-}

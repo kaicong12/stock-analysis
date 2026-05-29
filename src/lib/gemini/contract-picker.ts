@@ -538,7 +538,6 @@ function buildClosingLeg(p: Position): ContractLeg | null {
     delta: p.liveGreeks?.delta ?? null,
     theta: p.liveGreeks?.theta ?? null,
     vega: p.liveGreeks?.vega ?? null,
-    conid: p.conid,
     ratio: p.position > 0 ? -1 : 1, // To close: if held long (>0), sell (-1). If held short (<0), buy (+1).
   };
 }
@@ -747,7 +746,6 @@ function fillLegFromChain(leg: ContractLeg | undefined, chain: OptionChain): Con
       delta: match.delta,
       theta: match.theta,
       vega: match.vega,
-      conid: match.conid,
       ratio: leg.ratio,
     };
   }

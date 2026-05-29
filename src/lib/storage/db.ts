@@ -3,45 +3,22 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 const DB_DIR = path.join(process.cwd(), "data");
-const DB_FILE = path.join(DB_DIR, "ibkr-secdef.sqlite");
+const DB_FILE = path.join(DB_DIR, "app.sqlite");
 
 // Each entry is one schema version. user_version starts at 0 (fresh DB) and
 // is stamped to MIGRATIONS.length after we apply pending migrations.
+//
+// IMPORTANT: never delete or reorder a migration even after the schema it
+// creates is removed. The user_version pragma tracks an integer offset into
+// this array — shifting indices would re-run later migrations against an
+// already-evolved DB. Migrations whose tables are no longer used should be
+// replaced with a no-op (see slot 0 below).
 const MIGRATIONS: Array<(db: Database.Database) => void> = [
-  (db) => {
-    db.exec(`
-      CREATE TABLE ibkr_underlying (
-        symbol      TEXT PRIMARY KEY,
-        conid       INTEGER NOT NULL,
-        months_csv  TEXT NOT NULL,
-        inserted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE ibkr_strikes (
-        underlying_conid INTEGER NOT NULL,
-        month            TEXT NOT NULL,
-        exchange         TEXT NOT NULL,
-        call_strikes     TEXT NOT NULL,
-        put_strikes      TEXT NOT NULL,
-        inserted_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (underlying_conid, month, exchange)
-      );
-
-      CREATE TABLE ibkr_secdef_info (
-        conid            INTEGER PRIMARY KEY,
-        underlying_conid INTEGER NOT NULL,
-        month            TEXT NOT NULL,
-        strike           REAL NOT NULL,
-        side             TEXT NOT NULL CHECK (side IN ('C','P')),
-        maturity_date    TEXT NOT NULL,
-        multiplier       TEXT,
-        inserted_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE INDEX idx_secdef_info_und_month ON ibkr_secdef_info (underlying_conid, month);
-      CREATE INDEX idx_secdef_info_tuple    ON ibkr_secdef_info (underlying_conid, month, strike, side);
-    `);
-  },
+  // Was the IBKR secdef cache (ibkr_underlying / ibkr_strikes / ibkr_secdef_info).
+  // Replaced by moomoo's get_option_chain — chain data is fetched fresh per
+  // request and not persisted. The tables were dropped manually; this slot
+  // stays as a no-op so user_version sequencing is preserved across upgrades.
+  () => {},
   (db) => {
     db.exec(`
       CREATE TABLE journal_trades (
@@ -146,6 +123,28 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
   },
   (db) => {
     db.exec(`ALTER TABLE ibkr_trades ADD COLUMN date_time TEXT;`);
+  },
+  (db) => {
+    // Daily closes cache for the python sidecar's HV computation. The sidecar
+    // (a separate process) reads + writes these tables directly via sqlite3 —
+    // the file is shared, WAL mode handles concurrent access. We use
+    // CREATE TABLE IF NOT EXISTS here (atypical for migrations) because the
+    // sidecar may have run first and created the tables defensively on its
+    // own startup; the schema is identical either way.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS daily_closes (
+        yf_ticker   TEXT NOT NULL,
+        close_date  TEXT NOT NULL,
+        close       REAL NOT NULL,
+        PRIMARY KEY (yf_ticker, close_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS daily_closes_sync (
+        yf_ticker          TEXT PRIMARY KEY,
+        last_refresh_date  TEXT NOT NULL,
+        bars_count         INTEGER NOT NULL DEFAULT 0
+      );
+    `);
   },
 ];
 

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { pickContract, pickerEligible } from "../../../lib/gemini/contract-picker";
-import { getNarrowOptionChain, type NarrowChainOptions } from "../../../lib/ibkr/options";
+import { getNarrowOptionChain, type NarrowChainOptions } from "../../../lib/moomoo/options";
 import type {
   HeldGroup,
   Portfolio,
@@ -101,8 +101,8 @@ export async function POST(request: NextRequest) {
     const chain = await getNarrowOptionChain(body.symbol, spot, chainWindow);
     if (!chain.expiries.length) {
       throw new Error(
-        `No option chain available for ${body.symbol} — IBKR returned no expiries in the 20-60 DTE window. ` +
-        `The symbol may have resolved to a non-equity instrument (index/CFD) or the underlying has no listed options.`
+        `No option chain available for ${body.symbol} — moomoo returned no expiries in the 20-60 DTE window. ` +
+        `The underlying may have no listed options or no contracts in-window on a major US exchange.`
       );
     }
     const nextEarningsDate = body.nextEarningsDate ?? null;

@@ -164,21 +164,30 @@ If none of these fire, proceed to the IV regime rules below.
 
 VOLATILITY IS THE PRIMARY DRIVER, NOT DIRECTION. In options trading, direction is a commodity but volatility is a math problem. Always check vega exposure BEFORE direction.
 
+VOLATILITY NUMBERS — SERVER-COMPUTED, AUTHORITATIVE:
+The derivatives panel's FIRST TWO bullets (when present) carry hard numbers computed from moomoo IV at the closest-to-spot strike (~30 DTE expiry) and yfinance close-to-close HV30 × sqrt(252). The shapes are:
+  Bullet 1: "Vol baseline: ATM IV {x}% ({N}d), HV30 {y}%, IV/HV {r} — {regime_label}."
+  Bullet 2: "25Δ skew: put IV {a}% vs call IV {b}% = {±z}pp {skew_label}."
+PARSE these numbers directly. Do NOT infer IV-HV premium or skew from the anomaly-class bullets when the Vol baseline bullet is present — the server numbers win, even if the anomaly text disagrees. If the Vol baseline bullet says "unavailable", fall back to the anomaly text's qualitative description and lower confidence on vol-driven decisions.
+
 IV regime → required vega direction (non-negotiable):
-- IV percentile HIGH (>~70): you MUST be SHORT or NEUTRAL vega. MATCH THE CREDIT TRADE TO YOUR DIRECTIONAL BIAS — high IV does NOT default to bullish.
+We do not have IV Percentile (would require a 52w IV history we don't store). USE THE IV/HV RATIO as the regime proxy:
+- IV/HV ≥ 1.30 (treat as "HIGH IV regime"): vol is materially overpriced vs. realized. You MUST be SHORT or NEUTRAL vega. MATCH THE CREDIT TRADE TO YOUR DIRECTIONAL BIAS — high IV does NOT default to bullish.
   - Bullish-to-neutral bias → SELL_CASH_SECURED_PUT (cash-permitting) or SELL_PUT_SPREAD (cash-light alternative). Both capture put-side premium.
   - Bearish-to-neutral bias → SELL_COVERED_CALL (≥100 shares held) or SELL_CALL_SPREAD (no shares required). Both capture call-side premium.
   - NEVER pick a debit spread in this regime — IV crush after the move can leave you flat or down even when direction is right.
-- IV percentile LOW (<~30): debit spreads (LONG vega) are the right tool — premium is cheap and a vol expansion adds tailwind. BUY_CALL_SPREAD (bullish) or BUY_PUT_SPREAD (bearish).
-- IV middle (~30-70): vega is a wash; the tie-breaker is conviction × IV-HV spread (see below). Default to CREDIT when conviction <70 — income trades have higher probability of profit and don't require a directional move to win. The credit pick MUST match the directional bias: bullish → SELL_CSP (cash-permitting) or SELL_PUT_SPREAD (cash-light); bearish → SELL_COVERED_CALL (eligible) or SELL_CALL_SPREAD (no shares). Default to DEBIT (BUY_*_SPREAD) only when conviction ≥75 AND direction is decisive.
+- IV/HV ≤ 0.85 (treat as "LOW IV regime"): vol is cheap vs. what the stock has actually done. Debit spreads (LONG vega) are the right tool — premium is cheap and a vol expansion adds tailwind. BUY_CALL_SPREAD (bullish) or BUY_PUT_SPREAD (bearish).
+- IV/HV between 0.85 and 1.30 (treat as "MID IV regime"): vega is a wash; the tie-breaker is conviction. Default to CREDIT when conviction <70 — income trades have higher probability of profit and don't require a directional move to win. The credit pick MUST match the directional bias: bullish → SELL_CSP (cash-permitting) or SELL_PUT_SPREAD (cash-light); bearish → SELL_COVERED_CALL (eligible) or SELL_CALL_SPREAD (no shares). Default to DEBIT (BUY_*_SPREAD) only when conviction ≥75 AND direction is decisive.
 
-IV-HV check (mandatory when IV percentile is mid-to-high):
-- If the derivatives panel cites IV >> HV (e.g. "IV-HV高额溢价" or implied >> realized by 2x+), the option market is overpaying for fear. SELLING premium is mathematically favored REGARDLESS of directional bias — the stock isn't moving as much as options imply.
-- If IV ≈ HV or IV < HV, vol is fair-priced; lean on direction.
+IV-HV check (mandatory; reinforces the IV/HV regime decision above):
+- IV/HV ≥ 1.30: the option market is materially overpaying for fear. SELLING premium is mathematically favored REGARDLESS of directional bias — the stock isn't moving as much as options imply. Rationale MUST cite the numeric IV/HV ratio (e.g. "IV/HV 1.42 — implied 42% richer than realized, selling vol favored").
+- IV/HV between 0.85 and 1.30: vol is fair-priced; lean on direction.
+- IV/HV ≤ 0.85: realized > implied — short-vega trades have a structural HEADWIND (vol expansion would hurt them). Prefer debit or PASS.
 
-Skew check (mandatory):
-- If the derivatives panel mentions OTM puts trading at materially higher IV than OTM calls (put skew elevated), the market is paying up for crash protection. SELL_CASH_SECURED_PUT becomes structurally more attractive — you're collecting that fear premium.
-- If call skew is elevated (less common), SELL_COVERED_CALL collects the right-tail premium.
+Skew check (mandatory; uses 25Δ skew from the Vol baseline bullet):
+- 25Δ skew ≥ +0.03 (put IV richer than call IV by ≥3 vol points): put skew elevated, market paying up for crash protection. SELL_CASH_SECURED_PUT becomes structurally more attractive — you're collecting that fear premium. Rationale MUST cite the numeric skew (e.g. "25Δ put skew +4.1pp — sellers paid to provide downside insurance").
+- 25Δ skew ≤ -0.03 (call IV richer than put IV; uncommon, often signals melt-up positioning or upcoming-merger excitement): SELL_COVERED_CALL or SELL_CALL_SPREAD collects the right-tail premium.
+- 25Δ skew between -0.03 and +0.03: skew balanced; don't weight the decision on skew.
 
 Leveraged-ETF rule (overrides bullish-credit/bearish-credit defaults):
 - For daily-reset 3x leveraged ETFs (TQQQ, SQQQ, SOXL, SOXS, UPRO, SPXU, SPXL, SPXS, FAS, FAZ, TNA, TZA, LABU, LABD, NUGT, DUST, JNUG, JDST, BOIL, KOLD, and similar 2x/3x leveraged products): PREFER the spread variants over CSP / covered call regardless of cash eligibility. Specifically: bullish-to-neutral → SELL_PUT_SPREAD (NOT SELL_CASH_SECURED_PUT); bearish-to-neutral → SELL_CALL_SPREAD (NOT SELL_COVERED_CALL even if shares are held).

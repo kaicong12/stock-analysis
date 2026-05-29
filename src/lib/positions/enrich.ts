@@ -17,8 +17,31 @@
 // is also pre-warmed.
 
 import { ensureIserverBridge, ibkr } from "../ibkr/client";
-import { getInfoByConid, insertInfoRows, type SecdefInfoRow } from "../ibkr/secdef-store";
 import type { Position } from "../types";
+
+// In-memory cache of (conid → SecdefInfoRow). Held-position expiry enrichment
+// is the only remaining caller of IBKR's secdef/info, and the previous SQLite
+// store was sized for the now-deleted option-chain fetcher. A per-process Map
+// is the right shape for portfolio refreshes.
+interface SecdefInfoRow {
+  conid: number;
+  underlyingConid: number;
+  month: string;
+  strike: number;
+  right: "C" | "P";
+  maturityDate: string;
+  multiplier?: string;
+}
+
+const INFO_BY_CONID = new Map<number, SecdefInfoRow>();
+
+function getInfoByConid(conid: number): SecdefInfoRow | undefined {
+  return INFO_BY_CONID.get(conid);
+}
+
+function insertInfoRows(rows: SecdefInfoRow[]): void {
+  for (const r of rows) INFO_BY_CONID.set(r.conid, r);
+}
 
 interface RawSecdefInfoRow {
   conid: number;
