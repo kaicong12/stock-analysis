@@ -1,4 +1,4 @@
-// Contract picker — turns a derivatives-sleeve action (e.g. BUY_CALL_SPREAD)
+// Contract picker — turns a derivatives-sleeve action (e.g. SELL_PUT_SPREAD)
 // + the live option chain + portfolio context into a concrete ContractPick:
 // specific contract codes, limit price, sized contracts, max P/L, breakeven.
 
@@ -52,8 +52,6 @@ const PICK_SCHEMA = {
     strategy: {
       type: "string",
       enum: [
-        "BUY_CALL_SPREAD",
-        "BUY_PUT_SPREAD",
         "SELL_PUT_SPREAD",
         "SELL_CALL_SPREAD",
         "SELL_COVERED_CALL",
@@ -97,7 +95,7 @@ const PICK_SCHEMA = {
 
 // ---------- system instruction ----------
 
-const SYSTEM_INSTRUCTION = `You are the options-execution analyst at the desk. The head PM has issued a derivatives sleeve action (one of: BUY_CALL_SPREAD, BUY_PUT_SPREAD, SELL_COVERED_CALL, SELL_CASH_SECURED_PUT). Your job: pick a SPECIFIC pair of contracts (or single contract for income trades) from the live option chain, set a limit price, and size the trade against the user's NAV.
+const SYSTEM_INSTRUCTION = `You are the options-execution analyst at the desk. The head PM has issued a derivatives sleeve action (one of: SELL_PUT_SPREAD, SELL_CALL_SPREAD, SELL_COVERED_CALL, SELL_CASH_SECURED_PUT, IRON_CONDOR, ROLL_OUT). Your job: pick a SPECIFIC pair of contracts (or single contract for income trades) from the live option chain, set a limit price, and size the trade against the user's NAV.
 
 Data source — IBKR Client Portal snapshot (real-time during RTH, last-close otherwise):
 - delta / gamma / theta / vega ARE provided. Use them. Treat |delta| as the primary moneyness handle:
@@ -109,8 +107,8 @@ Data source — IBKR Client Portal snapshot (real-time during RTH, last-close ot
 
 Chain constraints — the chain payload is deliberately narrow and ASYMMETRIC by strategy:
 - STRIKE WINDOW: the server widens the side your strategy needs and narrows the irrelevant side. Approximate windows by action:
-  - SELL_PUT_SPREAD / SELL_CASH_SECURED_PUT / BUY_PUT_SPREAD: lower=25% below spot, upper=8% above
-  - SELL_CALL_SPREAD / SELL_COVERED_CALL / BUY_CALL_SPREAD: lower=8% below spot, upper=25% above
+  - SELL_PUT_SPREAD / SELL_CASH_SECURED_PUT: lower=25% below spot, upper=8% above
+  - SELL_CALL_SPREAD / SELL_COVERED_CALL: lower=8% below spot, upper=25% above
   - IRON_CONDOR: ±20% symmetric
   - ROLL_OUT: depends on rollHint — OUT_AND_DOWN widens lower to 30%, OUT_AND_UP widens upper to 30%, plain OUT is ±20%
   Strikes outside the relevant window for your strategy WILL NOT appear in the chain. If your delta target requires a strike beyond the available band (rare), pick the furthest available strike, note it is chain-edge limited, and confirm the delta is still within your target range before proceeding.
@@ -128,25 +126,15 @@ Universal rules:
   This sentence is mandatory on every pick regardless of strategy.
 
 - HARD RULE — when nextEarningsDate is set:
-  - DEBIT structures (BUY_CALL_SPREAD, BUY_PUT_SPREAD): you MUST choose a preEarningsSafe expiry. IV crush neutralizes the debit thesis. If multiple preEarningsSafe expiries exist, pick the one closest to (but not exceeding) earningsBufferDate. If NONE exists, pick the closest available expiry, surface the straddle in rationale, and the verdict layer will flip to PASS.
   - CREDIT structures (SELL_PUT_SPREAD, SELL_CALL_SPREAD, IRON_CONDOR, SELL_COVERED_CALL, SELL_CASH_SECURED_PUT): you MUST choose a preEarningsSafe expiry. The user's conservative preference is to NEVER hold a credit position through an earnings print — the "IV-crush edge" rationalization is OFF for this user. If NONE exists, pick the closest available expiry, surface the straddle, and the verdict layer will flip to PASS.
   - ROLL_OUT: the new opening expiry MUST be preEarningsSafe. Never roll into an earnings-straddle.
   - Tiebreaker: earnings-avoidance overrides the 30-45 DTE preference. A sub-30 DTE preEarningsSafe expiry is strictly preferred over a 30-45 DTE straddle.
 - Liquidity gate — skip a contract if ANY of: bid == null AND last == null; oi < 50 (when oi is provided); (ask − bid) / mid > 0.10 (spread > 10% of mid is a no-fill risk).
-- Limit price = bid/ask midpoint when both legs have quotes; for spreads, limitPrice = long.mid − short.mid (net debit). For income trades, limitPrice = short.mid (credit). Fall back to "last" if a quote is missing.
-- Sizing must respect NAV. For BUY spreads: cap max-loss-at-trade ≤ 0.5% NAV. For SELL income: cap notional exposure (strike × 100 × contracts) ≤ available cash for CSP, ≤ held shares for covered call.
-- Profit-take discipline (CREDIT trades — covered call, CSP, credit spread, ROLL_OUT): always include a 50%-of-max profit-take target in the rationale, expressed as the "close at $X" price. Example: "sell at $2.00 credit, close at $1.00 (50% max)". Reason: gamma risk + IV-expansion risk dominate the second half of theta payoff; recycling capital into a fresh 30-45 DTE trade beats squeezing the last 50%. For DEBIT spreads, include a 50-75%-of-max profit-take in the rationale instead — debits don't have the same gamma penalty but should still be closed before they decay back to zero.
+- Limit price = bid/ask midpoint when both legs have quotes; for credit spreads, limitPrice = short.mid − long.mid (net credit). For income trades, limitPrice = short.mid (credit). Fall back to "last" if a quote is missing.
+- Sizing must respect NAV. For SELL income: cap notional exposure (strike × 100 × contracts) ≤ available cash for CSP, ≤ held shares for covered call. For credit spreads: cap total max loss ≤ 1.5% of NAV.
+- Profit-take discipline (CREDIT trades — covered call, CSP, credit spread, ROLL_OUT): always include a 50%-of-max profit-take target in the rationale, expressed as the "close at $X" price. Example: "sell at $2.00 credit, close at $1.00 (50% max)". Reason: gamma risk + IV-expansion risk dominate the second half of theta payoff; recycling capital into a fresh 30-45 DTE trade beats squeezing the last 50%.
 
 Strategy-specific rules:
-
-BUY_CALL_SPREAD (bullish debit):
-- Long leg by delta: ATM (Δ 0.45-0.55) for default; 1-strike-ITM (Δ 0.55-0.65) when confidence ≥ 80 (more intrinsic, less time-value bleed). Reject if Δ unavailable for the candidate AND the strike-vs-spot proxy is outside ±2% of spot.
-- Short leg by delta: ~30-delta OTM (Δ 0.20-0.35). Lower delta = wider, cheaper, lower probability; higher delta = tighter, richer, higher probability.
-- Spread WIDTH (in strikes) is confidence-scaled: <65 → 1; 65–74 → 2; 75–84 → 3; ≥85 → 4–5. Use this to pick which OTM short leg satisfies the delta range.
-- Prefer LOW vega when buying spreads in elevated IV (you're not trying to be long vol). When IV is depressed, vega exposure is acceptable.
-- netDebit = long.mid − short.mid; maxProfit = (shortStrike − longStrike) × 100 − netDebit × 100; maxLoss = netDebit × 100; breakeven = longStrike + netDebit.
-
-BUY_PUT_SPREAD (bearish debit): mirror of above using puts. Long Δ between -0.45 and -0.55 default, -0.55 to -0.65 when confidence ≥ 80; short ~30-delta OTM put (Δ between -0.20 and -0.35). Same width scaling, same vega preference.
 
 SELL_PUT_SPREAD (bullish CREDIT — bull put spread; the cash-light alternative to SELL_CASH_SECURED_PUT):
 - Short leg by delta: DEFAULT to Δ between -0.15 and -0.20 (further OTM, higher POP, more cushion below spot — the conservative default). Step tighter (Δ -0.20 to -0.25) ONLY when confidence ≥ 75 AND a real technical support level mentioned in the technical panel sits at or above the chosen strike. Tighter still (Δ -0.25 to -0.30) ONLY when confidence ≥ 80 AND willing to manage. NEVER pick Δ beyond -0.30 by default — that is a managed-risk trade, not a passive credit harvest.
@@ -493,8 +481,6 @@ interface RawPick {
 
 function pickerEligible(action: DerivativesAction): action is ContractPick["strategy"] {
   return (
-    action === "BUY_CALL_SPREAD" ||
-    action === "BUY_PUT_SPREAD" ||
     action === "SELL_PUT_SPREAD" ||
     action === "SELL_CALL_SPREAD" ||
     action === "SELL_COVERED_CALL" ||
@@ -610,25 +596,6 @@ function computeEntryEconomics(
   const shortMid = executablePrice(lookupChainContract(shortLeg, chain));
 
   switch (strategy) {
-    case "BUY_CALL_SPREAD":
-    case "BUY_PUT_SPREAD": {
-      if (!longLeg || !shortLeg || longMid == null || shortMid == null) return null;
-      const netDebit = longMid - shortMid;
-      const width = Math.abs(longLeg.strike - shortLeg.strike);
-      const maxProfit = (width - netDebit) * 100 * N;
-      const maxLoss = netDebit * 100 * N;
-      const breakeven = strategy === "BUY_CALL_SPREAD"
-        ? longLeg.strike + netDebit
-        : longLeg.strike - netDebit;
-      return {
-        limitPrice: round2(netDebit),
-        netDebit: round2(netDebit),
-        maxProfit: round0(maxProfit),
-        maxLoss: round0(maxLoss),
-        breakeven: round2(breakeven),
-        capitalRequired: round0(maxLoss),
-      };
-    }
     case "SELL_PUT_SPREAD":
     case "SELL_CALL_SPREAD": {
       if (!longLeg || !shortLeg || longMid == null || shortMid == null) return null;

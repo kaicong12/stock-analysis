@@ -4,14 +4,15 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import styles from "../page.module.css";
 import type { JournalStrategy, JournalTradeWithLegs } from "../../lib/journal/types";
 
+// Picker list — debit spreads (BUY_CALL_SPREAD / BUY_PUT_SPREAD) are
+// intentionally omitted. They remain in JournalStrategy so legacy entries
+// still parse and render via STRATEGY_LABEL below.
 const STRATEGIES: JournalStrategy[] = [
   "SELL_PUT_SPREAD",
   "SELL_CALL_SPREAD",
   "IRON_CONDOR",
   "SELL_CASH_SECURED_PUT",
   "SELL_COVERED_CALL",
-  "BUY_CALL_SPREAD",
-  "BUY_PUT_SPREAD",
   "LONG_CALL",
   "LONG_PUT",
   "CUSTOM",
@@ -358,13 +359,13 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
         { side: "C" as const, action: "BUY" as const, strike: "", deltaAtEntry: "" },
       ];
     }
-    if (s === "SELL_PUT_SPREAD" || s === "BUY_PUT_SPREAD") {
+    if (s === "SELL_PUT_SPREAD") {
       return [
         { side: "P" as const, action: "BUY" as const, strike: "", deltaAtEntry: "" },
         { side: "P" as const, action: "SELL" as const, strike: "", deltaAtEntry: "" },
       ];
     }
-    if (s === "SELL_CALL_SPREAD" || s === "BUY_CALL_SPREAD") {
+    if (s === "SELL_CALL_SPREAD") {
       return [
         { side: "C" as const, action: "SELL" as const, strike: "", deltaAtEntry: "" },
         { side: "C" as const, action: "BUY" as const, strike: "", deltaAtEntry: "" },
@@ -444,14 +445,6 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
     } else if (strategy === "SELL_CASH_SECURED_PUT" && strikes.length === 1) {
       calculatedMaxRisk = strikes[0] - nc;
       calculatedBE = (strikes[0] - nc).toFixed(2);
-    } else if (strategy === "BUY_CALL_SPREAD" && strikes.length === 2) {
-      const sorted = [...strikes].sort((a, b) => a - b);
-      calculatedMaxRisk = nc;
-      calculatedBE = (sorted[0] + nc).toFixed(2);
-    } else if (strategy === "BUY_PUT_SPREAD" && strikes.length === 2) {
-      const sorted = [...strikes].sort((a, b) => a - b);
-      calculatedMaxRisk = nc;
-      calculatedBE = (sorted[1] - nc).toFixed(2);
     } else if (strategy === "LONG_CALL" && strikes.length === 1) {
       calculatedMaxRisk = nc;
       calculatedBE = (strikes[0] + nc).toFixed(2);
@@ -464,17 +457,8 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
     if (calculatedMaxRisk !== null && calculatedMaxRisk > 0) {
       if (strategy.includes("SELL") || strategy === "IRON_CONDOR" || strategy === "SELL_CASH_SECURED_PUT" || strategy === "SELL_COVERED_CALL") {
         calcROC = ((nc / calculatedMaxRisk) * 100).toFixed(1) + "%";
-      } else {
-        let maxProfit: number | null = null;
-        if ((strategy === "BUY_PUT_SPREAD" || strategy === "BUY_CALL_SPREAD") && strikes.length === 2) {
-          const width = Math.abs(strikes[1] - strikes[0]);
-          maxProfit = width - nc;
-        } else if (strategy === "LONG_CALL" || strategy === "LONG_PUT") {
-          maxProfit = Infinity;
-        }
-
-        if (maxProfit === Infinity) calcROC = "∞";
-        else if (maxProfit !== null && maxProfit > 0) calcROC = ((maxProfit / nc) * 100).toFixed(1) + "%";
+      } else if (strategy === "LONG_CALL" || strategy === "LONG_PUT") {
+        calcROC = "∞";
       }
     }
 

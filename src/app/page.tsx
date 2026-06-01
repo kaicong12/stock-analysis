@@ -347,7 +347,7 @@ export default function Page() {
 
     // Contract pick — only when the action is picker-eligible.
     const eligibleActions = new Set([
-      "BUY_CALL_SPREAD", "BUY_PUT_SPREAD", "SELL_PUT_SPREAD", "SELL_CALL_SPREAD",
+      "SELL_PUT_SPREAD", "SELL_CALL_SPREAD",
       "SELL_COVERED_CALL", "SELL_CASH_SECURED_PUT", "ROLL_OUT",
     ]);
     if (eligibleActions.has(verdictRes.verdict.derivatives.action)) {

@@ -29,28 +29,48 @@ const CHECKLISTS: ChecklistDef[] = [
     tone: "bullish",
     items: [
       {
+        id: "ivr",
+        text: "IV Rank ≥ 30 (required), ≥ 50 preferred. Below 30 the premium is too cheap for the risk — almost always a skip. 30-50 is the marginal-IV band: tradeable when directional conviction is strong (see directional override below). ≥ 50 is the lean-in tier where credit selling has the cleanest math.",
+      },
+      {
+        id: "ivhv",
+        text: "IV / HV ratio ≥ 1.2× (required), ≥ 1.5× preferred. ≥ 1.2× confirms the options market is paying more than realized movement. ≥ 1.5× is the lean-in tier where the implied-vs-realized gap is wide enough that IV mean-reversion alone gives you positive expected value, before any directional move.",
+      },
+      {
+        id: "directional_override",
+        text: "Directional override: if BOTH conviction ≥ 75 AND there's a real technical support level your short strike sits below, you may take the trade with marginal IV (IVR 30-50 + IV/HV 1.2-1.5×). The trade thesis is then 'price stays above support' rather than 'IV mean-reverts.' Skip if the override conditions are not met AND IV is marginal.",
+      },
+      {
         id: "support",
         text: "Identify Support Levels: Look for a price floor where the stock has historically bounced. Your Short Put (the one you sell) should ideally be placed below this level.",
       },
       {
         id: "delta",
-        text: "Check the Delta: Look for a Short Put Delta between 0.15 and 0.30. This suggests a 70% to 85% statistical probability of the option expiring worthless.",
-      },
-      {
-        id: "iv",
-        text: "Analyze Implied Volatility (IV): Ensure IV is relatively high. You want to sell “expensive” insurance. If IV is low, the premium might not be worth the risk.",
+        text: "Check the Delta: Look for a Short Put Delta between 0.15 and 0.30. This suggests a 70% to 85% statistical probability of the option expiring worthless. Default 0.15-0.20; only step tighter (0.20-0.30) when conviction is high and the strike sits at or above a real technical support.",
       },
       {
         id: "width",
-        text: "Spread Width: Choose your Long Put (the one you buy) based on your risk tolerance. A wider spread (e.g., $5 wide) collects more premium but carries a higher Max Loss.",
+        text: "Spread Width: Choose your Long Put (the one you buy) based on the underlying spot — 5-wide for stocks $50-200, 10-wide for $200-500, 20-wide for $500+. A wider spread collects more premium but carries a higher Max Loss.",
       },
       {
         id: "rr",
-        text: "Risk/Reward Ratio: Aim to collect a credit that is at least 20% to 33% of the spread width. For a $5 wide spread, you’d want at least $1.00 to $1.65 in credit.",
+        text: "Risk/Reward Ratio: Aim to collect a credit that is at least 20% to 33% of the spread width. For a $5 wide spread, you'd want at least $1.00 to $1.65 in credit. Target ROC 20–30% on the candidates table.",
+      },
+      {
+        id: "nav",
+        text: "NAV Sizing: Cap total max loss at ≤ 1.5% of NAV. Per-contract max loss = (width × 100) − net credit. Scale contracts down before stepping to a tighter delta.",
       },
       {
         id: "dte",
-        text: "Days to Expiration (DTE): Target 30–45 days. This is where “Theta decay” (time erosion) begins to accelerate in your favor.",
+        text: "Days to Expiration (DTE): Target 30–45 days. This is where Theta decay accelerates in your favor.",
+      },
+      {
+        id: "earnings",
+        text: "Earnings Buffer: Confirm the expiry closes ≥ 2 days BEFORE the next earnings print. Never hold a credit position through earnings — IV crush risk is asymmetric against you.",
+      },
+      {
+        id: "exit",
+        text: "Profit Take: Plan a 50%-of-max close target at order entry. Gamma + IV-expansion risk dominate the second half of theta payoff; recycle freed capital into a fresh 30-45 DTE trade.",
       },
     ],
   },
@@ -62,28 +82,56 @@ const CHECKLISTS: ChecklistDef[] = [
     tone: "bearish",
     items: [
       {
+        id: "ivr",
+        text: "IV Rank ≥ 30 (required), ≥ 50 preferred. Below 30 the premium is too cheap for the risk — almost always a skip. 30-50 is the marginal-IV band: tradeable when directional conviction is strong (see directional override below). ≥ 50 is the lean-in tier where credit selling has the cleanest math.",
+      },
+      {
+        id: "ivhv",
+        text: "IV / HV ratio ≥ 1.2× (required), ≥ 1.5× preferred. ≥ 1.2× confirms the options market is paying more than realized movement. ≥ 1.5× is the lean-in tier where the implied-vs-realized gap is wide enough that IV mean-reversion alone gives you positive expected value, before any directional move.",
+      },
+      {
+        id: "directional_override",
+        text: "Directional override: if BOTH conviction ≥ 75 AND there's a real technical resistance level your short strike sits above, you may take the trade with marginal IV (IVR 30-50 + IV/HV 1.2-1.5×). The trade thesis is then 'price stays below resistance' rather than 'IV mean-reverts.' Skip if the override conditions are not met AND IV is marginal.",
+      },
+      {
         id: "resistance",
         text: "Identify Resistance Levels: Look for a price ceiling the stock struggles to break through. Your Short Call should be placed above this level.",
       },
       {
         id: "delta",
-        text: "Check the Delta: Target a Short Call Delta between 0.15 and 0.30. This keeps your strikes “Out of the Money” (OTM).",
+        text: "Check the Delta: Target a Short Call Delta between 0.15 and 0.30. Default 0.15-0.20; only step tighter (0.20-0.30) when conviction is high and the strike sits at or below a real technical resistance.",
       },
       {
         id: "dividends",
-        text: "Check for Dividends: If the stock has an upcoming ex-dividend date, ensure the “extrinsic value” of your Short Call is greater than the dividend to avoid early assignment risk.",
+        text: "Check for Dividends: If the stock has an upcoming ex-dividend date, ensure the extrinsic value of your Short Call is greater than the dividend to avoid early assignment risk.",
       },
       {
         id: "technical",
-        text: "Technical Confirmation: Check if the stock is overbought (using tools like RSI). It’s safer to sell calls when the stock’s momentum is slowing down.",
+        text: "Technical Confirmation: Check if the stock is overbought (RSI > 70, MACD turning). It's safer to sell calls when momentum is slowing.",
       },
       {
         id: "gap",
-        text: "The Gap Rule: Ensure your Short Call is far enough away that a standard daily move (Average True Range) wouldn’t easily “pierce” your strike.",
+        text: "The Gap Rule: Ensure your Short Call is far enough away that a standard daily move (1× ATR) wouldn't easily pierce your strike.",
       },
       {
         id: "credit",
-        text: "Credit vs. Width: Like the put spread, aim for a credit that represents roughly 1/3 of the spread width.",
+        text: "Credit vs. Width: Aim for a credit that represents roughly 1/3 of the spread width. Target ROC 20–30%.",
+      },
+      {
+        id: "nav",
+        text: "NAV Sizing: Cap total max loss at ≤ 1.5% of NAV. Per-contract max loss = (width × 100) − net credit.",
+      },
+      {
+        id: "dte",
+        text: "Days to Expiration (DTE): Target 30–45 days for accelerating theta decay.",
+      },
+      {
+        id: "earnings",
+        text: "Earnings Buffer: Confirm the expiry closes ≥ 2 days BEFORE the next earnings print. Never hold a credit position through earnings.",
+      },
+      {
+        id: "exit",
+        text: "Profit Take: Plan a 50%-of-max close target at order entry.",
       },
     ],
   },
