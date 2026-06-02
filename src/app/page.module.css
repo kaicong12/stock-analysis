@@ -884,6 +884,20 @@
   color: var(--on-surface-variant);
 }
 
+/* "routine" pill on insider rows — marks 10b5-1 plan sells / comp plumbing as
+   non-conviction so they're visually demoted from the discretionary trades. */
+.insiderRoutineTag {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 1px 5px;
+}
+
 /* Verdict adjustment block — the "what to actually do" panel. */
 .adjustmentBlock {
   display: flex;

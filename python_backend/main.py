@@ -449,6 +449,29 @@ def _db_init() -> None:
                   bars_count         INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            # OHLCV bars for the price-action / breakdown signal. Closes alone
+            # (daily_closes) don't carry the open + volume needed for gap and
+            # volume-confirmation, so this is a separate cache with the same
+            # once-per-calendar-day refresh discipline.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS daily_ohlcv (
+                  yf_ticker   TEXT NOT NULL,
+                  bar_date    TEXT NOT NULL,
+                  open        REAL NOT NULL,
+                  high        REAL NOT NULL,
+                  low         REAL NOT NULL,
+                  close       REAL NOT NULL,
+                  volume      REAL NOT NULL,
+                  PRIMARY KEY (yf_ticker, bar_date)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS daily_ohlcv_sync (
+                  yf_ticker          TEXT PRIMARY KEY,
+                  last_refresh_date  TEXT NOT NULL,
+                  bars_count         INTEGER NOT NULL DEFAULT 0
+                )
+            """)
             conn.commit()
         _db_inited = True
 
@@ -716,6 +739,227 @@ def vol_summary(
         "skew_25d_call_strike": c25["strike"] if c25 else None,
         "skew_25d_put_strike": p25["strike"] if p25 else None,
         "hv_sample_size": max(0, len(closes) - 1),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Price-action / breakdown signal — the "falling-knife guard" input.
+#
+# Deterministic, computed from daily OHLCV. The synthesis layer (synth.ts) uses
+# `signal` to HARD-VETO the wrong-side credit trade: a confirmed "breakdown"
+# forbids selling put spreads / CSPs (don't catch the knife); a confirmed
+# "breakout" forbids selling call spreads / covered calls (don't fade a melt-up).
+# Thresholds below are tunable constants — keep them named so they're auditable.
+# ---------------------------------------------------------------------------
+
+# Breakdown confirmation (downside).
+_BRK_DRAWDOWN_PCT = 10.0      # % off the 20-day high that counts as "broken down"
+_BRK_VOL_RATIO = 1.5          # today volume / 20d avg that counts as "heavy volume"
+_BRK_GAP_PCT = 3.0            # |gap %| (open vs prior close) that counts as a gap move
+_BRK_RUN_DAYS = 3             # consecutive same-direction days that counts as a run
+_BRK_NEAR_EXTREME_PCT = 1.0   # within this % of the 20d low/high == "at the extreme"
+# Severe escalation.
+_BRK_SEVERE_GAP_PCT = 5.0
+_BRK_SEVERE_VOL_RATIO = 2.0
+
+
+def _fetch_daily_ohlcv(yf_ticker: str, n_bars: int = 220) -> list[dict]:
+    """Most recent N daily OHLCV bars (ascending). Cached once per calendar day
+    per ticker in SQLite, same discipline as _fetch_daily_closes. 220 bars so a
+    200-day SMA is computable with headroom. Returns [] on failure (never raises
+    — the price-action signal degrades to 'none', it must not break the verdict)."""
+    today_iso = dt.date.today().isoformat()
+
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT last_refresh_date FROM daily_ohlcv_sync WHERE yf_ticker = ?",
+            (yf_ticker,),
+        ).fetchone()
+        if row and row[0] == today_iso:
+            rows = conn.execute(
+                "SELECT bar_date, open, high, low, close, volume FROM daily_ohlcv "
+                "WHERE yf_ticker = ? ORDER BY bar_date DESC LIMIT ?",
+                (yf_ticker, n_bars),
+            ).fetchall()
+            if len(rows) >= 30:
+                return [
+                    {"date": r[0], "open": r[1], "high": r[2], "low": r[3],
+                     "close": r[4], "volume": r[5]}
+                    for r in reversed(rows)
+                ]
+
+    try:
+        import yfinance as yf  # lazy import — already used elsewhere
+        period_days = max(n_bars * 2, 320)
+        t = yf.Ticker(yf_ticker)
+        hist = t.history(period=f"{period_days}d", interval="1d", auto_adjust=False)
+    except Exception:
+        return []
+    if hist is None or hist.empty or "Close" not in hist:
+        return []
+
+    bars: list[dict] = []
+    for ts, r in hist.iterrows():
+        o, h, l, c, v = (r.get("Open"), r.get("High"), r.get("Low"),
+                         r.get("Close"), r.get("Volume"))
+        vals = [_f(o), _f(h), _f(l), _f(c)]
+        if any(x is None for x in vals):
+            continue
+        bars.append({
+            "date": ts.strftime("%Y-%m-%d"),
+            "open": vals[0], "high": vals[1], "low": vals[2], "close": vals[3],
+            "volume": _f(v) or 0.0,
+        })
+    if not bars:
+        return []
+    bars = bars[-n_bars:]
+
+    with _db() as conn:
+        with conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO daily_ohlcv "
+                "(yf_ticker, bar_date, open, high, low, close, volume) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(yf_ticker, b["date"], b["open"], b["high"], b["low"],
+                  b["close"], b["volume"]) for b in bars],
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO daily_ohlcv_sync "
+                "(yf_ticker, last_refresh_date, bars_count) VALUES (?, ?, ?)",
+                (yf_ticker, today_iso, len(bars)),
+            )
+    return bars
+
+
+def _sma(closes: list[float], window: int) -> float | None:
+    if len(closes) < window:
+        return None
+    return sum(closes[-window:]) / window
+
+
+def _run_length(closes: list[float], direction: int) -> int:
+    """Consecutive trailing days moving in `direction` (+1 up, -1 down),
+    counting close-to-close changes from the most recent bar backwards."""
+    run = 0
+    for i in range(len(closes) - 1, 0, -1):
+        diff = closes[i] - closes[i - 1]
+        if direction > 0 and diff > 0:
+            run += 1
+        elif direction < 0 and diff < 0:
+            run += 1
+        else:
+            break
+    return run
+
+
+@app.get("/price-action")
+def price_action(symbol: str = Query(..., description="e.g. US.AAPL")):
+    """Deterministic price-action breakdown/breakout signal for the verdict's
+    falling-knife guard. Returns signal='none' (and 200 OK) whenever data is
+    thin or absent — callers treat null/none as 'no guard', never an error."""
+    yf_ticker = _to_yf_ticker(symbol)
+    bars = _fetch_daily_ohlcv(yf_ticker, n_bars=220)
+
+    base = {
+        "symbol": symbol, "yfTicker": yf_ticker, "signal": "none",
+        "severity": "none", "reasons": [], "spot": None,
+        "sma50": None, "sma200": None, "pctVsSma50": None, "pctVsSma200": None,
+        "pctOffHigh20": None, "atLow20": False, "atHigh20": False,
+        "consecutiveDownDays": 0, "consecutiveUpDays": 0,
+        "todayChangePct": None, "gapPct": None, "volRatio": None,
+        "hv30": None, "hv60": None, "hvExpansion": None, "barsUsed": len(bars),
+    }
+    if len(bars) < 30:
+        return base
+
+    closes = [b["close"] for b in bars]
+    vols = [b["volume"] for b in bars]
+    spot = closes[-1]
+    prev_close = closes[-2]
+    today_open = bars[-1]["open"]
+
+    sma50 = _sma(closes, 50)
+    sma200 = _sma(closes, 200)
+    window20 = closes[-20:]
+    high20 = max(window20)
+    low20 = min(window20)
+    avg_vol20 = sum(vols[-20:]) / min(20, len(vols)) if vols else 0.0
+
+    pct_vs_50 = ((spot - sma50) / sma50 * 100) if sma50 else None
+    pct_vs_200 = ((spot - sma200) / sma200 * 100) if sma200 else None
+    pct_off_high20 = ((spot - high20) / high20 * 100) if high20 else None  # <= 0
+    at_low20 = bool(low20 > 0 and (spot - low20) / low20 * 100 <= _BRK_NEAR_EXTREME_PCT)
+    at_high20 = bool(high20 > 0 and (high20 - spot) / high20 * 100 <= _BRK_NEAR_EXTREME_PCT)
+    down_run = _run_length(closes, -1)
+    up_run = _run_length(closes, +1)
+    today_chg = ((spot - prev_close) / prev_close * 100) if prev_close else None
+    gap_pct = ((today_open - prev_close) / prev_close * 100) if prev_close else None
+    vol_ratio = (vols[-1] / avg_vol20) if avg_vol20 > 0 else None
+    hv30 = _compute_hv(closes, 30)
+    hv60 = _compute_hv(closes, 60)
+    hv_expansion = (hv30 / hv60) if (hv30 and hv60 and hv60 > 0) else None
+
+    below_50 = pct_vs_50 is not None and pct_vs_50 < 0
+    above_50 = pct_vs_50 is not None and pct_vs_50 > 0
+    below_200 = pct_vs_200 is not None and pct_vs_200 < 0
+    heavy_vol = vol_ratio is not None and vol_ratio >= _BRK_VOL_RATIO
+    gap_down = gap_pct is not None and gap_pct <= -_BRK_GAP_PCT
+    gap_up = gap_pct is not None and gap_pct >= _BRK_GAP_PCT
+    deep_drawdown = pct_off_high20 is not None and pct_off_high20 <= -_BRK_DRAWDOWN_PCT
+
+    reasons: list[str] = []
+    signal = "none"
+    severity = "none"
+
+    # Downside breakdown: in a downtrend (below 50d), at/near lows or deeply off
+    # the recent high, AND confirmed by heavy volume / a gap-down / a down-run.
+    if below_50 and (at_low20 or deep_drawdown) and (heavy_vol or gap_down or down_run >= _BRK_RUN_DAYS):
+        signal = "breakdown"
+        if below_50:
+            reasons.append(f"{abs(pct_vs_50):.1f}% below 50d MA")
+        if below_200:
+            reasons.append(f"{abs(pct_vs_200):.1f}% below 200d MA")
+        if deep_drawdown:
+            reasons.append(f"{abs(pct_off_high20):.1f}% off 20d high")
+        elif at_low20:
+            reasons.append("at 20-day lows")
+        if heavy_vol:
+            reasons.append(f"volume {vol_ratio:.1f}x 20d avg")
+        if gap_down:
+            reasons.append(f"gap-down {gap_pct:.1f}%")
+        if down_run >= _BRK_RUN_DAYS:
+            reasons.append(f"{down_run} consecutive down days")
+        severe = below_200 and (
+            (gap_pct is not None and gap_pct <= -_BRK_SEVERE_GAP_PCT)
+            or (vol_ratio is not None and vol_ratio >= _BRK_SEVERE_VOL_RATIO)
+        )
+        severity = "severe" if severe else "mild"
+
+    # Upside melt-up (mirror): above 50d, at/near 20d highs, confirmed by heavy
+    # volume / gap-up / up-run.
+    elif above_50 and at_high20 and (heavy_vol or gap_up or up_run >= _BRK_RUN_DAYS):
+        signal = "breakout"
+        reasons.append("at 20-day highs")
+        if pct_vs_50 is not None:
+            reasons.append(f"{pct_vs_50:.1f}% above 50d MA")
+        if heavy_vol:
+            reasons.append(f"volume {vol_ratio:.1f}x 20d avg")
+        if gap_up:
+            reasons.append(f"gap-up {gap_pct:.1f}%")
+        if up_run >= _BRK_RUN_DAYS:
+            reasons.append(f"{up_run} consecutive up days")
+        severity = "mild"
+
+    return {
+        "symbol": symbol, "yfTicker": yf_ticker, "signal": signal,
+        "severity": severity, "reasons": reasons,
+        "spot": spot, "sma50": sma50, "sma200": sma200,
+        "pctVsSma50": pct_vs_50, "pctVsSma200": pct_vs_200,
+        "pctOffHigh20": pct_off_high20, "atLow20": at_low20, "atHigh20": at_high20,
+        "consecutiveDownDays": down_run, "consecutiveUpDays": up_run,
+        "todayChangePct": today_chg, "gapPct": gap_pct, "volRatio": vol_ratio,
+        "hv30": hv30, "hv60": hv60, "hvExpansion": hv_expansion,
+        "barsUsed": len(bars),
     }
 
 

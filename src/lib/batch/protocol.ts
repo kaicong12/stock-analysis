@@ -17,6 +17,7 @@ export const PANEL_KEYS: PanelKey[] = [
   "sentiment",
   "digest",
   "news",
+  "insider",
 ];
 
 // What the Single tab needs to render a ticker without re-fetching anything.

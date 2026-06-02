@@ -1,5 +1,6 @@
 import { collatePeerNews, getStockFeed, newsForDigest, searchNews } from "../moomoo/httpApi";
 import { getAnomaly, getFundamentals, getPeers, getVolSummary } from "../moomoo/sidecar";
+import { getInsiderTransactions } from "../massive/insider";
 import { ticker as toTicker } from "../symbol";
 import type { PanelSummary } from "../types";
 import type { PanelKey } from "../batch/protocol";
@@ -8,6 +9,7 @@ import {
   analyzeDerivatives,
   analyzeDigest,
   analyzeFundamentals,
+  analyzeInsider,
   analyzeNews,
   analyzeSentiment,
   analyzeTechnical,
@@ -70,6 +72,13 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
         summary: await analyzeFundamentals(data, ctx),
         nextEarningsDate: data?.data?.nextEarningsDate ?? null,
       };
+    }
+    case "insider": {
+      // SEC Form 4 via Massive (ex-Polygon). getInsiderTransactions never throws
+      // (empty result on any failure / missing key), so the panel degrades to
+      // "No insider activity" rather than failing the run.
+      const data = await getInsiderTransactions(ticker);
+      return { summary: await analyzeInsider(data, ctx) };
     }
   }
 }

@@ -5,6 +5,7 @@ import type {
   FundamentalsData,
   FundamentalsResult,
   PeersResult,
+  PriceAction,
   SnapshotResult,
   VolSummary,
 } from "../types";
@@ -137,6 +138,18 @@ export async function getVolSummary(
       skew25dPutStrike: r.skew_25d_put_strike,
       hvSampleSize: r.hv_sample_size,
     };
+  } catch {
+    return null;
+  }
+}
+
+// Deterministic price-action breakdown/breakout signal (yfinance daily OHLCV).
+// Feeds the verdict's falling-knife guard. Returns null on any sidecar failure —
+// the guard then no-ops (a missing signal must never block a normal verdict).
+// The backend already emits camelCase, so this is a thin typed pass-through.
+export async function getPriceAction(symbol: string): Promise<PriceAction | null> {
+  try {
+    return await callSidecar<PriceAction>("/price-action", { symbol });
   } catch {
     return null;
   }
