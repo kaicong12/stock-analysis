@@ -103,8 +103,6 @@ export function OrderModal({
 function strategyFromPick(p: ContractPick | undefined, fallback: JournalStrategy = "CUSTOM"): JournalStrategy {
   if (!p) return fallback;
   switch (p.strategy) {
-    case "BUY_CALL_SPREAD":
-    case "BUY_PUT_SPREAD":
     case "SELL_PUT_SPREAD":
     case "SELL_CALL_SPREAD":
     case "SELL_COVERED_CALL":
@@ -270,8 +268,6 @@ function JournalOpenForm({
           <option value="IRON_CONDOR">Iron Condor</option>
           <option value="SELL_CASH_SECURED_PUT">CSP</option>
           <option value="SELL_COVERED_CALL">Covered Call</option>
-          <option value="BUY_CALL_SPREAD">Bull Call Spread</option>
-          <option value="BUY_PUT_SPREAD">Bear Put Spread</option>
           <option value="LONG_CALL">Long Call</option>
           <option value="LONG_PUT">Long Put</option>
           <option value="CUSTOM">Custom</option>

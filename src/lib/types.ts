@@ -232,8 +232,6 @@ export type StockAction =
   | "PASS";       // No position, no entry — skip the stock sleeve.
 
 export type DerivativesAction =
-  | "BUY_CALL_SPREAD"        // Bullish debit spread (long call + short higher-strike call).
-  | "BUY_PUT_SPREAD"         // Bearish debit spread (long put + short lower-strike put).
   | "SELL_PUT_SPREAD"        // Bullish CREDIT spread aka bull put spread (short higher put + long lower put). Cash-light CSP alternative.
   | "SELL_CALL_SPREAD"       // Bearish CREDIT spread aka bear call spread (short lower call + long higher call). No-shares covered-call alternative.
   | "SELL_COVERED_CALL"      // Income on existing stock holding (≥100 sh per contract).

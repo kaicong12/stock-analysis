@@ -2,7 +2,7 @@
 
 import type { FormEvent } from "react";
 import styles from "../page.module.css";
-import { IconSearch } from "./icons";
+import { IconSearch, IconSparkle } from "./icons";
 
 export type AuthStatus = {
   ok: boolean;
@@ -26,6 +26,8 @@ export function Topbar({
   loading,
   activeTab,
   onTabChange,
+  onOpenAskAi,
+  askAiAvailable,
 }: {
   ticker: string;
   setTicker: (s: string) => void;
@@ -34,6 +36,8 @@ export function Topbar({
   authStatus: AuthStatus;
   activeTab: TabKey;
   onTabChange: (t: TabKey) => void;
+  onOpenAskAi: () => void;
+  askAiAvailable: boolean;
 }) {
   return (
     <header className={styles.topbar}>
@@ -52,7 +56,7 @@ export function Topbar({
           ))}
         </nav>
       </div>
-      {activeTab === "single" && (
+      {activeTab === "single" ? (
         <form onSubmit={onSubmit}>
           <div className={styles.searchWrap}>
             <IconSearch />
@@ -68,7 +72,21 @@ export function Topbar({
             {loading && <span className="label-caps">Analyzing…</span>}
           </div>
         </form>
+      ) : (
+        <span />
       )}
+      {/* Button is only visible below 1280px (CSS-controlled); on desktop the
+          inline Ask AI panel makes it redundant. */}
+      <button
+        type="button"
+        className={styles.topbarAskAi}
+        onClick={onOpenAskAi}
+        disabled={!askAiAvailable}
+        aria-label="Open Ask AI"
+      >
+        <IconSparkle />
+        Ask AI
+      </button>
     </header>
   );
 }

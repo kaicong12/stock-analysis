@@ -15,6 +15,7 @@ import type {
 import { classifyPortfolio } from "../lib/positions/groups";
 import { annotateGroups } from "../lib/positions/triggers";
 import { loadBatchResult, saveBatchSession, type BatchTickerPayload } from "../lib/batch/cache";
+import { AskAI } from "./components/AskAI";
 import { BatchView } from "./components/BatchView";
 import { Hero } from "./components/Hero";
 import { HeldOptionsDetail } from "./components/HeldOptionsDetail";
@@ -221,6 +222,7 @@ export default function Page() {
   const abortRef = useRef<AbortController | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("single");
+  const [isAskAiOpen, setIsAskAiOpen] = useState(false);
 
   // Initial portfolio load (independent of any search) so the rail populates immediately.
   useEffect(() => {
@@ -345,7 +347,7 @@ export default function Page() {
 
     // Contract pick — only when the action is picker-eligible.
     const eligibleActions = new Set([
-      "BUY_CALL_SPREAD", "BUY_PUT_SPREAD", "SELL_PUT_SPREAD", "SELL_CALL_SPREAD",
+      "SELL_PUT_SPREAD", "SELL_CALL_SPREAD",
       "SELL_COVERED_CALL", "SELL_CASH_SECURED_PUT", "ROLL_OUT",
     ]);
     if (eligibleActions.has(verdictRes.verdict.derivatives.action)) {
@@ -418,6 +420,9 @@ export default function Page() {
   }, [runAnalysis]);
 
   const heroData = useMemo<Verdict | null>(() => state.verdict, [state.verdict]);
+  const askAiTicker = (state.ticker || state.tickerInput || "").trim();
+  const askAiAvailable = activeTab === "single" && askAiTicker.length > 0;
+  const showAside = activeTab === "single";
 
   return (
     <div className={styles.shell}>
@@ -429,8 +434,10 @@ export default function Page() {
         authStatus={authStatus}
         activeTab={activeTab}
         onTabChange={changeTab}
+        onOpenAskAi={() => setIsAskAiOpen(true)}
+        askAiAvailable={askAiAvailable}
       />
-      <div className={styles.body}>
+      <div className={`${styles.body} ${showAside ? styles.bodyWithAside : ""}`}>
         <LeftRail
           portfolio={state.portfolio}
           heldGroups={state.heldGroups}
@@ -534,7 +541,23 @@ export default function Page() {
             )}
           </div>
         </main>
+        {showAside && (
+          <aside className={styles.askAiAside}>
+            <AskAI ticker={askAiTicker} mode="inline" />
+          </aside>
+        )}
       </div>
+      {/* Drawer is always mounted so the slide-out transition can play.
+          It only opens when the user taps the topbar button (which itself is
+          only visible below 1280px via CSS). */}
+      {showAside && (
+        <AskAI
+          ticker={askAiTicker}
+          mode="drawer"
+          isOpen={isAskAiOpen}
+          onClose={() => setIsAskAiOpen(false)}
+        />
+      )}
     </div>
   );
 }
