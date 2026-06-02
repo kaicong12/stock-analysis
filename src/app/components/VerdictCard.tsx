@@ -46,8 +46,6 @@ const STOCK_ACTION_META: Record<StockAction, { label: string; baseIcon: IconCmp 
 };
 
 const DERIVATIVES_ACTION_META: Record<DerivativesAction, { label: string; baseIcon: IconCmp; defaultTone: Tone }> = {
-  BUY_CALL_SPREAD: { label: "Buy Call Spread", baseIcon: IconArrowUp, defaultTone: "bullish" },
-  BUY_PUT_SPREAD: { label: "Buy Put Spread", baseIcon: IconArrowDown, defaultTone: "bearish" },
   SELL_PUT_SPREAD: { label: "Sell Put Spread", baseIcon: IconArrowUp, defaultTone: "bullish" },
   SELL_CALL_SPREAD: { label: "Sell Call Spread", baseIcon: IconArrowDown, defaultTone: "bearish" },
   SELL_COVERED_CALL: { label: "Sell Covered Call", baseIcon: IconHold, defaultTone: "neutral" },
@@ -310,12 +308,6 @@ function popFromPick(pick: ContractPick): number | null {
       const dc = absD(pick.shortCallLeg?.delta);
       if (dp == null || dc == null) return null;
       return Math.max(0, 1 - dp - dc);
-    }
-    case "BUY_CALL_SPREAD":
-    case "BUY_PUT_SPREAD": {
-      // Proxy: probability the underlying clears the long strike. Use long Δ.
-      const dLong = absD(pick.longLeg?.delta);
-      return dLong;
     }
     default:
       return null;

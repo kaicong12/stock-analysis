@@ -44,11 +44,9 @@ function chainWindowForAction(
   switch (action) {
     case "SELL_PUT_SPREAD":
     case "SELL_CASH_SECURED_PUT":
-    case "BUY_PUT_SPREAD":
       return { lowerPctWindow: 0.25, upperPctWindow: 0.08 };
     case "SELL_CALL_SPREAD":
     case "SELL_COVERED_CALL":
-    case "BUY_CALL_SPREAD":
       return { lowerPctWindow: 0.08, upperPctWindow: 0.25 };
     case "IRON_CONDOR":
       return { lowerPctWindow: 0.20, upperPctWindow: 0.20 };

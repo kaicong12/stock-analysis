@@ -55,8 +55,6 @@ const DERIVATIVES_SLEEVE_SCHEMA = {
     action: {
       type: "string",
       enum: [
-        "BUY_CALL_SPREAD",
-        "BUY_PUT_SPREAD",
         "SELL_PUT_SPREAD",
         "SELL_CALL_SPREAD",
         "SELL_COVERED_CALL",
@@ -137,9 +135,7 @@ STOCK SLEEVE (action ∈ {OPEN, INCREASE, TRIM, HOLD, CLOSE, PASS}):
 
 ---
 
-DERIVATIVES SLEEVE — strategy menu STRICTLY from this list (with NET VEGA exposure tagged):
-- BUY_CALL_SPREAD: bullish DEBIT (LONG vega; net long premium). Defined risk both sides.
-- BUY_PUT_SPREAD: bearish DEBIT (LONG vega; net long premium). Defined risk both sides.
+DERIVATIVES SLEEVE — strategy menu STRICTLY from this list (with NET VEGA exposure tagged). DEBIT spreads (BUY_CALL_SPREAD / BUY_PUT_SPREAD) are NOT in the menu — this is a conservative credit-only book.
 - SELL_PUT_SPREAD: bullish CREDIT — aka bull put spread (sell higher-strike put + buy lower-strike put). SHORT vega. Capital-light cousin of CSP — same bullish-to-neutral thesis, defined max loss = (width × 100) − net credit, typically 5-20× less buying-power than a CSP. The cash-light primary choice WHEN your directional bias is bullish-to-neutral; do NOT pick this on a bearish-leaning thesis just because IV is high — that's what SELL_CALL_SPREAD is for.
 - SELL_CALL_SPREAD: bearish CREDIT — aka bear call spread (sell lower-strike call + buy higher-strike call). SHORT vega. The no-shares cousin of covered call — same bearish-to-neutral thesis, defined risk, no shares required.
 - SELL_COVERED_CALL: bearish-to-neutral CREDIT (SHORT vega; income on held stock). ONLY if user already holds ≥100 shares.
@@ -158,7 +154,7 @@ PASS criteria — apply BEFORE the IV regime / eligibility logic below to skip t
 PASS is NOT a fallback for cash constraints. Specifically:
 - cspEligible === false is NEVER a PASS reason. It only blocks SELL_CASH_SECURED_PUT. SELL_PUT_SPREAD (bullish credit) has NO cash gate — its BPR is the spread width minus credit, fits any non-trivial account. If the directional thesis was bullish-to-neutral and conviction is ≥ 55, you MUST pick SELL_PUT_SPREAD, not PASS.
 - Similarly, coveredCallEligible === false is NEVER a PASS reason. It only blocks SELL_COVERED_CALL. SELL_CALL_SPREAD (bearish credit) has NO shares gate. If the thesis was bearish-to-neutral and conviction ≥ 55, you MUST pick SELL_CALL_SPREAD, not PASS.
-- DO NOT bundle "CSP unfundable" + "conviction too low for debit" into a PASS. Conviction thresholds on debit spreads (≥ 75) are about VEGA/POP geometry on long-premium trades — they have NO bearing on credit-spread selection. A bullish thesis with conviction 60 and an unfundable CSP routes to SELL_PUT_SPREAD, full stop.
+- A bullish thesis with conviction ≥ 55 and an unfundable CSP routes to SELL_PUT_SPREAD, full stop. CSP-unfundable is NEVER a PASS reason on its own.
 
 If none of these fire, proceed to the IV regime rules below.
 
@@ -171,18 +167,18 @@ The derivatives panel's FIRST TWO bullets (when present) carry hard numbers comp
 PARSE these numbers directly. Do NOT infer IV-HV premium or skew from the anomaly-class bullets when the Vol baseline bullet is present — the server numbers win, even if the anomaly text disagrees. If the Vol baseline bullet says "unavailable", fall back to the anomaly text's qualitative description and lower confidence on vol-driven decisions.
 
 IV regime → required vega direction (non-negotiable):
-We do not have IV Percentile (would require a 52w IV history we don't store). USE THE IV/HV RATIO as the regime proxy:
-- IV/HV ≥ 1.30 (treat as "HIGH IV regime"): vol is materially overpriced vs. realized. You MUST be SHORT or NEUTRAL vega. MATCH THE CREDIT TRADE TO YOUR DIRECTIONAL BIAS — high IV does NOT default to bullish.
+- IV percentile HIGH (>~70): credit trades are mathematically rich. MATCH THE CREDIT TRADE TO YOUR DIRECTIONAL BIAS — high IV does NOT default to bullish.
   - Bullish-to-neutral bias → SELL_CASH_SECURED_PUT (cash-permitting) or SELL_PUT_SPREAD (cash-light alternative). Both capture put-side premium.
   - Bearish-to-neutral bias → SELL_COVERED_CALL (≥100 shares held) or SELL_CALL_SPREAD (no shares required). Both capture call-side premium.
-  - NEVER pick a debit spread in this regime — IV crush after the move can leave you flat or down even when direction is right.
-- IV/HV ≤ 0.85 (treat as "LOW IV regime"): vol is cheap vs. what the stock has actually done. Debit spreads (LONG vega) are the right tool — premium is cheap and a vol expansion adds tailwind. BUY_CALL_SPREAD (bullish) or BUY_PUT_SPREAD (bearish).
-- IV/HV between 0.85 and 1.30 (treat as "MID IV regime"): vega is a wash; the tie-breaker is conviction. Default to CREDIT when conviction <70 — income trades have higher probability of profit and don't require a directional move to win. The credit pick MUST match the directional bias: bullish → SELL_CSP (cash-permitting) or SELL_PUT_SPREAD (cash-light); bearish → SELL_COVERED_CALL (eligible) or SELL_CALL_SPREAD (no shares). Default to DEBIT (BUY_*_SPREAD) only when conviction ≥75 AND direction is decisive.
+- IV percentile LOW (<~30): premium is cheap; selling credit gives a thin reward for the same defined risk. PASS is acceptable here on a marginal directional thesis. Only commit to a credit spread when conviction ≥ 70 AND directional support is strong.
+- IV middle (~30-70): credit spreads remain the only structures on the menu. Pick CREDIT matched to the directional bias when conviction ≥ 55. The credit pick MUST match the directional bias: bullish → SELL_CSP (cash-permitting) or SELL_PUT_SPREAD (cash-light); bearish → SELL_COVERED_CALL (eligible) or SELL_CALL_SPREAD (no shares). Skip the trade (PASS) if conviction < 55 AND IV-HV is at parity.
 
-IV-HV check (mandatory; reinforces the IV/HV regime decision above):
-- IV/HV ≥ 1.30: the option market is materially overpaying for fear. SELLING premium is mathematically favored REGARDLESS of directional bias — the stock isn't moving as much as options imply. Rationale MUST cite the numeric IV/HV ratio (e.g. "IV/HV 1.42 — implied 42% richer than realized, selling vol favored").
-- IV/HV between 0.85 and 1.30: vol is fair-priced; lean on direction.
-- IV/HV ≤ 0.85: realized > implied — short-vega trades have a structural HEADWIND (vol expansion would hurt them). Prefer debit or PASS.
+IV-HV check (mandatory when IV percentile is mid-to-high) — tiered, matches the user's Spread Checklist:
+- IV/HV ≥ 1.2× (REQUIRED tier): options are paying more than realized. The derivatives panel cites this when IV exceeds HV by ~20% or more, often phrased as "IV slightly elevated vs HV" or "IV-HV溢价". Treat this as the minimum "premium is rich" signal — credit selling has positive expected value vs. realized movement.
+- IV/HV ≥ 1.5× (PREFERRED tier): the implied-vs-realized gap is wide enough that IV mean-reversion alone gives positive EV before any directional move. Lean in here.
+- IV/HV ≥ 2× (IDEAL tier): the "IV-HV高额溢价" / "implied >> realized by 2x+" case. SELLING premium is mathematically favored REGARDLESS of directional bias.
+- IV ≈ HV (ratio < 1.2×): vol is fair-priced — treat as "no IV-HV premium" for PASS-criterion purposes; lean on direction alone.
+- Do NOT require the explicit "高额溢价" phrasing. Any panel language indicating IV > HV at any magnitude ≥ 1.2× counts as an IV-HV premium for the PASS / regime logic above.
 
 Skew check (mandatory; uses 25Δ skew from the Vol baseline bullet):
 - 25Δ skew ≥ +0.03 (put IV richer than call IV by ≥3 vol points): put skew elevated, market paying up for crash protection. SELL_CASH_SECURED_PUT becomes structurally more attractive — you're collecting that fear premium. Rationale MUST cite the numeric skew (e.g. "25Δ put skew +4.1pp — sellers paid to provide downside insurance").
@@ -206,8 +202,6 @@ Eligibility hard rules — these gate strategy selection. The server has pre-com
 
 - SELL_PUT_SPREAD / SELL_CALL_SPREAD never have a cash gate (defined-risk via the long protective leg). Their BPR ≈ (width × 100) − net credit per contract — a 5-wide spread has ~$500 BPR/contract minus credit, fits any non-trivial portfolio. Always available as the bullish-credit / bearish-credit fallback.
 
-- BUY_CALL_SPREAD / BUY_PUT_SPREAD have no eligibility gate beyond having any cash at all. Sizing is the constraint, not eligibility.
-
 - If the user already has an open short put / short call / credit spread on this name, prefer HOLD / INCREASE / TRIM / ROLL_OUT on the existing structure instead of stacking a fresh one.
 
 - INCREASE / TRIM / HOLD / CLOSE on the derivatives sleeve requires at least one existing OPT leg on this ticker (heldOptionLegs is non-empty). When multiple legs exist (e.g. a spread), name in the instruction WHICH leg the action targets.
@@ -215,8 +209,7 @@ Eligibility hard rules — these gate strategy selection. The server has pre-com
 - Options DTE rule: stick to ~30-45 DTE for new entries. Income trades (CSP / credit spreads / covered call) can extend to 45-60 DTE for richer theta.
 
 Probability of Profit (POP) discipline:
-- For DEBIT spreads (long vega): typical POP is 30-45% — you need direction AND vol cooperation. Only justify when conviction ≥75.
-- For CREDIT spreads / income (short vega): typical POP is 65-80% — you win if the stock is flat, up, or only mildly down (for puts) / mildly up (for calls). Default choice when conviction is moderate.
+- For CREDIT spreads / income (short vega): typical POP is 65-80% — you win if the stock is flat, up, or only mildly down (for puts) / mildly up (for calls). This is the default and only structure menu.
 - Mention the approximate POP regime in the rationale ("CSP at 30Δ ≈ 70% POP").
 
 Management discipline for held CREDIT positions (apply BEFORE direction/Greeks logic):
@@ -258,11 +251,10 @@ When the user holds an existing options structure (e.g. a 175/180 call spread), 
 
 adjustment.instruction (derivatives sleeve): plain English describing the play. Example: "Sell a 30-45 DTE bull put spread. Take profit at 50% of max." Describe DTE band + structure + management plan. DO NOT include specific deltas, strike prices, premium amounts, OR "% NAV" / contract counts — the contract picker downstream owns strike + delta selection from the live chain (defaults to far-OTM Δ 0.15-0.20 short legs and only tightens with conviction), and the server computes and appends the sizing footer from sizeContracts. Any "% NAV" or "(~N contracts)" you write here will be stripped and replaced. Same rule for ROLL_OUT: describe geometry ("roll the short leg further OTM and out 30 days") without naming target strikes or specific deltas.
 
-adjustment.sizeContracts (derivatives sleeve): REQUIRED integer contract count for new entries (SELL_PUT_SPREAD / SELL_CALL_SPREAD / SELL_CASH_SECURED_PUT / SELL_COVERED_CALL / IRON_CONDOR / BUY_CALL_SPREAD / BUY_PUT_SPREAD) and INCREASE. Pick contracts so the approximate max risk lands inside the target NAV band:
+adjustment.sizeContracts (derivatives sleeve): REQUIRED integer contract count for new entries (SELL_PUT_SPREAD / SELL_CALL_SPREAD / SELL_CASH_SECURED_PUT / SELL_COVERED_CALL / IRON_CONDOR) and INCREASE. Pick contracts so the approximate max risk lands inside the target NAV band:
 - CSP: cap notional (strike × 100 × contracts) at availableFundsBase AND total notional at ≤ 5-10% NAV.
 - Covered call: 1 contract per 100 uncovered shares (use heldStockShares − shortCallContractsAlreadyOpen × 100).
 - Credit spreads / iron condor: max loss per contract ≈ standard width × 100 (5-wide for spot <$200, 10-wide for $200-500, 20-wide for >$500); cap total max loss at ≤ 1.5% NAV.
-- Debit spreads: max loss per contract ≈ ~35% of standard width × 100; cap at ≤ 0.5% NAV.
 - ROLL_OUT: match held leg quantity (preserves size).
 - HOLD / PASS: omit or set 0.
 - CLOSE / TRIM: set to the existing held leg quantity (full close) or the quantity to trim.
@@ -541,10 +533,6 @@ function approxRiskPerContractTradeCcy(action: DerivativesAction, spot: number):
     case "IRON_CONDOR":
       // Credit spread max loss ≈ width × 100 (minus credit, ignored here).
       return standardSpreadWidth(spot) * 100;
-    case "BUY_CALL_SPREAD":
-    case "BUY_PUT_SPREAD":
-      // Debit spread max loss = debit × 100; typical debit is ~35% of width.
-      return standardSpreadWidth(spot) * 100 * 0.35;
     default:
       // ROLL_OUT preserves size; INCREASE/TRIM/HOLD/CLOSE/PASS don't open
       // new risk at synth-time granularity.
