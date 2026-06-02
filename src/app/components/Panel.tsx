@@ -11,6 +11,7 @@ import type {
   PanelEvidence,
   PanelMeta,
   PanelSummary,
+  ReadThrough,
   Verdict,
 } from "../../lib/types";
 import { relTime } from "./format";
@@ -37,6 +38,7 @@ export function Panel(props: {
   const summary = props.summary;
   const evidence = summary?.evidence ?? [];
   const meta = summary?.meta ?? [];
+  const readThrough = summary?.readThrough ?? [];
   const showFeed = !!props.feed && props.feed.posts.length > 0;
   const showNewsFallback = !summary?.evidence && !!props.news && props.news.items.length > 0;
   return (
@@ -67,9 +69,12 @@ export function Panel(props: {
           </div>
         )}
 
-        {(evidence.length > 0 || showNewsFallback || showFeed) && <div className={styles.panelDivider} />}
+        {(evidence.length > 0 || showNewsFallback || showFeed || readThrough.length > 0) && (
+          <div className={styles.panelDivider} />
+        )}
         {evidence.length > 0 && <EvidenceList items={evidence} />}
         {evidence.length === 0 && showNewsFallback && <NewsList items={props.news!.items} />}
+        {readThrough.length > 0 && <ReadThroughBlock items={readThrough} />}
         {showFeed && <FeedList posts={props.feed!.posts} />}
       </div>
     </section>
@@ -117,6 +122,41 @@ function EvidenceList({ items }: { items: PanelEvidence[] }) {
           <span className={styles.evidenceTitle}>{item.title}</span>
         </a>
       ))}
+    </div>
+  );
+}
+
+const RT_DIR_CLS: Record<ReadThrough["direction"], string> = {
+  bullish: "rtBullish",
+  bearish: "rtBearish",
+  neutral: "rtNeutral",
+};
+
+// Peer read-through: sector-peer news with a read-through direction FOR this
+// ticker. Deliberately rendered apart from the self-news evidence so peer
+// headlines are never mistaken for the ticker's own news.
+function ReadThroughBlock({ items }: { items: ReadThrough[] }) {
+  return (
+    <div>
+      <div className={styles.readThroughLabel}>Sector read-through</div>
+      <div className={styles.readThroughList}>
+        {items.slice(0, 5).map((it, i) => (
+          <a
+            key={i}
+            className={styles.readThroughItem + " " + styles[RT_DIR_CLS[it.direction]]}
+            href={it.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div className={styles.readThroughHead}>
+              <span className={styles.readThroughDot} />
+              <span className={styles.readThroughPeer}>{it.peer}</span>
+              <span className={styles.readThroughClass}>{it.classification.replace("-", " ")}</span>
+            </div>
+            <span className={styles.readThroughNote}>{it.note}</span>
+          </a>
+        ))}
+      </div>
     </div>
   );
 }

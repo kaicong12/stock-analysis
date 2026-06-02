@@ -210,6 +210,41 @@ export interface PanelMeta {
   value: string;
 }
 
+// A large-cap sector peer resolved from OpenD plates (sidecar /peers).
+export interface PeerInfo {
+  code: string;   // moomoo symbol, e.g. "US.NVDA"
+  name: string | null;
+  capBn: number;  // market cap in $B
+  price: number;
+}
+
+export interface PeersResult {
+  symbol: string;
+  industryPlate: string | null;
+  peers: PeerInfo[];
+}
+
+// One peer-news read-through entry in the News Flow panel's sub-block.
+// Kept strictly separate from the self-news fields (direction/headline/etc.):
+// peer news must never influence the panel's own-ticker direction.
+export type ReadThroughClass = "sector-sentiment" | "competitive" | "shared-input";
+
+export interface ReadThrough {
+  peer: string;                  // peer ticker, e.g. "NVDA"
+  classification: ReadThroughClass;
+  direction: "bullish" | "bearish" | "neutral";  // read-through FOR the panel's ticker
+  note: string;
+  url: string;
+}
+
+// A peer-news item after the fan-out + collation step (httpApi.collatePeerNews).
+export interface PeerNewsItem {
+  source: string;     // peer ticker the item surfaced under
+  title: string;
+  url: string;
+  publishTime: number;
+}
+
 export interface PanelSummary {
   headline: string;
   bullets: string[];
@@ -217,6 +252,7 @@ export interface PanelSummary {
   conclusion?: string;
   evidence?: PanelEvidence[];
   meta?: PanelMeta[];
+  readThrough?: ReadThrough[];
 }
 
 // ----- Verdict — dual sleeve (stock half + derivatives half) -----

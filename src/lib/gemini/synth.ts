@@ -268,6 +268,12 @@ rationale (3-5 sentences): cite the panel summaries by name and quote concrete s
 
 riskFactor: one sentence — the single thing that, if it happens, invalidates BOTH sleeve calls.
 
+Peer read-through (the news panel's \`readThrough[]\`): the news panel may carry sector-peer events tagged with a read-through direction FOR this ticker. Treat these as a RISK OVERLAY / tiebreaker, NOT a primary driver — the ticker's own panels set the thesis. Specifically:
+- A bearish + "competitive" read-through is a caution flag against selling premium on this name: prefer smaller size, wider spreads, or PASS. It must NOT, on its own, flip an otherwise-bullish verdict bearish.
+- "shared-input" read-throughs (a common supplier/cost/regulatory shock — e.g. TSMC pricing, HBM supply, export rules) can hit the whole sleeve; weight them more heavily and name them in riskFactor when material.
+- "sector-sentiment" read-throughs are soft context only.
+Cite the peer ticker + event whenever a read-through influences the call.
+
 Hard rules:
 - Sizing always references the user's actual portfolio (NAV, available cash, current position size).
 - Don't recommend covered calls when no shares are held.
@@ -333,6 +339,9 @@ function compressPanel(p: PanelSummary) {
     headline: p.headline,
     conclusion: p.conclusion,
     bullets: p.bullets,
+    // Peer read-through reaches the verdict as a risk overlay (news panel only;
+    // undefined elsewhere). See the "Peer read-through" clause in SYSTEM_INSTRUCTION.
+    ...(p.readThrough && p.readThrough.length > 0 ? { readThrough: p.readThrough } : {}),
   };
 }
 

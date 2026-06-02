@@ -250,6 +250,49 @@ def snapshot(symbol: str = Query(..., description="e.g. US.AAPL")):
     return {"symbol": symbol, "data": rows[0] if isinstance(rows, list) and rows else rows}
 
 
+# Large-cap sector peers via OpenD plates. Resolves the ticker's INDUSTRY plate,
+# pulls constituents, and filters to the CLAUDE.md universe ($10B+ cap, >= $20).
+# No news here — just the peer graph; the TS layer fans out news per peer.
+# Membership barely moves, so callers should cache this (≈1 day): the underlying
+# get_owner_plate / get_plate_stock calls are rate-limited to 10 req / 30s.
+PEERS_MIN_CAP = 10_000_000_000  # $10B large-cap floor
+PEERS_MIN_PRICE = 20            # CLAUDE.md abovePrice
+
+
+@app.get("/peers/{symbol}")
+def peers(symbol: str, top: int = 8):
+    with quote_ctx() as ctx:
+        ret, plates = ctx.get_owner_plate([symbol])
+        if ret != RET_OK:
+            raise HTTPException(status_code=502, detail=f"get_owner_plate: {plates}")
+        industry = [r for r in plates.to_dict("records") if r.get("plate_type") == "INDUSTRY"]
+        if not industry:
+            return {"symbol": symbol, "industryPlate": None, "peers": []}
+        plate = industry[0]
+        ret, stocks = ctx.get_plate_stock(plate["plate_code"])
+        if ret != RET_OK:
+            raise HTTPException(status_code=502, detail=f"get_plate_stock: {stocks}")
+        codes = [r["code"] for r in stocks.to_dict("records")]
+        if not codes:
+            return {"symbol": symbol, "industryPlate": plate["plate_name"], "peers": []}
+        # snapshot is capped at 400 codes/req; industry plates are well under that
+        ret, snap = ctx.get_market_snapshot(codes)
+        if ret != RET_OK:
+            raise HTTPException(status_code=502, detail=f"get_market_snapshot: {snap}")
+
+    out = []
+    for s in _normalize(snap):
+        cap = s.get("total_market_val") or 0
+        price = s.get("last_price") or 0
+        if s.get("code") == symbol:
+            continue
+        if cap >= PEERS_MIN_CAP and price >= PEERS_MIN_PRICE:
+            out.append({"code": s["code"], "name": s.get("name"),
+                        "capBn": round(cap / 1e9, 1), "price": price})
+    out.sort(key=lambda x: x["capBn"], reverse=True)
+    return {"symbol": symbol, "industryPlate": plate["plate_name"], "peers": out[:top]}
+
+
 # yfinance ticker mapping. moomoo uses MARKET.CODE; yfinance uses suffixes
 # (or none for US). Hong Kong codes need 4-digit zero-padding.
 def _to_yf_ticker(symbol: str) -> str:

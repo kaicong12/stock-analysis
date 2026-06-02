@@ -4,6 +4,7 @@ import type {
   DigestResult,
   NewsItem,
   NewsResult,
+  PeerNewsItem,
 } from "../types";
 
 const BASE = "https://ai-news-search.moomoo.com";
@@ -102,4 +103,59 @@ export async function getStockFeed(keyword: string, size = 30): Promise<CommentS
   });
   if (r.code !== 0) throw new Error(`moomoo stock_feed code=${r.code}: ${r.message ?? ""}`);
   return { symbol: keyword, posts: (r.data ?? []).map(adaptFeed) };
+}
+
+// Stage A of the peer read-through pipeline: fan out news_search across the
+// peer tickers (parallel — the endpoint is a CDN service, no throttling at this
+// scale), tag each item with its source peer, dedup by news_id. Pure HTTP +
+// merge — no LLM; the LLM relevance/clustering happens downstream in analyzeNews.
+// A failed peer is skipped, not fatal.
+//
+// Ordering is ROUND-ROBIN across peers, NOT global recency. A pure-recency
+// truncation used to starve a peer of its single most decision-relevant (but
+// not most recent) headline — e.g. "NVIDIA enters the PC market" landing one
+// slot past the cutoff while fresher fund-flow/PR noise from NVDA survived, so
+// the LLM saw only noise and dropped NVDA entirely. Round-robin guarantees each
+// peer's top items reach the model before any peer's deep tail.
+export async function collatePeerNews(
+  peerTickers: string[],
+  perPeer = 8,
+  max = 64,
+): Promise<PeerNewsItem[]> {
+  const results = await Promise.allSettled(
+    peerTickers.map((t) => searchNews(t, perPeer)),
+  );
+
+  // Per-peer lists, deduped globally by news_id; each peer keeps its own
+  // recency order.
+  const seen = new Set<string>();
+  const lists: PeerNewsItem[][] = results.map((res, i) => {
+    if (res.status !== "fulfilled") return [];
+    const out: PeerNewsItem[] = [];
+    for (const it of res.value.items) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push({
+        source: peerTickers[i],
+        title: it.title,
+        url: it.url,
+        publishTime: it.publishTime,
+      });
+    }
+    return out;
+  });
+
+  // Interleave: peer0[0], peer1[0], …, peer0[1], peer1[1], … so no peer's tail
+  // crowds out another peer's head.
+  const merged: PeerNewsItem[] = [];
+  const depth = lists.reduce((m, l) => Math.max(m, l.length), 0);
+  for (let d = 0; d < depth && merged.length < max; d++) {
+    for (const list of lists) {
+      if (d < list.length) {
+        merged.push(list[d]);
+        if (merged.length >= max) break;
+      }
+    }
+  }
+  return merged;
 }
