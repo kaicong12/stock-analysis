@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { synthesizeVerdict } from "../../../lib/gemini/synth";
+import { getPriceAction } from "../../../lib/moomoo/sidecar";
 import type {
   HeldGroup,
   PanelSummary,
@@ -27,6 +28,7 @@ interface VerdictBody {
     digest: PanelSummary;
     sentiment: PanelSummary;
     fundamentals: PanelSummary;
+    insider: PanelSummary;
   };
 }
 
@@ -41,6 +43,10 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "ticker, symbol, and panels are required" }, { status: 400 });
   }
   try {
+    // Price-action breakdown signal is fetched server-side (deterministic data,
+    // not client-provided) so the falling-knife guard can't be bypassed by the
+    // client. Never throws — null degrades the guard to a no-op.
+    const priceAction = await getPriceAction(body.symbol);
     const verdict = await synthesizeVerdict({
       ticker: body.ticker,
       symbol: body.symbol,
@@ -48,6 +54,7 @@ export async function POST(request: NextRequest) {
       portfolio: body.portfolio ?? null,
       heldPositions: body.heldPositions ?? [],
       heldGroups: body.heldGroups ?? [],
+      priceAction,
       panels: body.panels,
     });
     return Response.json({ verdict });

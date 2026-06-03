@@ -22,4 +22,7 @@ export const env = {
   ibkrFlexToken: process.env.IBKR_FLEX_TOKEN ?? "",
   ibkrFlexQueryId: process.env.IBKR_FLEX_QUERY_ID ?? "",
   pyBackendUrl: process.env.PYBACKEND_URL ?? "http://localhost:8765",
+  // Massive (ex-Polygon.io) — SEC Form 4 insider transactions. Optional at module
+  // load; the insider client degrades to an empty panel when the key is absent.
+  massiveApiKey: process.env.MASSIVE_API_KEY ?? "",
 };

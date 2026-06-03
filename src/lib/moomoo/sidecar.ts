@@ -4,6 +4,8 @@ import type {
   AnomalyResult,
   FundamentalsData,
   FundamentalsResult,
+  PeersResult,
+  PriceAction,
   SnapshotResult,
   VolSummary,
 } from "../types";
@@ -141,6 +143,18 @@ export async function getVolSummary(
   }
 }
 
+// Deterministic price-action breakdown/breakout signal (yfinance daily OHLCV).
+// Feeds the verdict's falling-knife guard. Returns null on any sidecar failure —
+// the guard then no-ops (a missing signal must never block a normal verdict).
+// The backend already emits camelCase, so this is a thin typed pass-through.
+export async function getPriceAction(symbol: string): Promise<PriceAction | null> {
+  try {
+    return await callSidecar<PriceAction>("/price-action", { symbol });
+  } catch {
+    return null;
+  }
+}
+
 export async function getSnapshot(symbol: string): Promise<SnapshotResult> {
   const r = await callSidecar<RawSnapshotResponse>("/snapshot", { symbol });
   const d = r.data;
@@ -156,5 +170,23 @@ export async function getSnapshot(symbol: string): Promise<SnapshotResult> {
     updateTime: d.update_time,
     raw: d,
   };
+}
+
+// Large-cap sector peers (OpenD plates, $10B+ / >= $20 filter applied server-side).
+// Returns an empty peer list rather than throwing on any failure (no INDUSTRY
+// plate, OpenD down, etc.) so the News panel still renders its self-news block.
+export async function getPeers(symbol: string, top = 8): Promise<PeersResult> {
+  try {
+    const r = await callSidecar<PeersResult>(`/peers/${encodeURIComponent(symbol)}`, {
+      top: String(top),
+    });
+    return {
+      symbol: r.symbol ?? symbol,
+      industryPlate: r.industryPlate ?? null,
+      peers: Array.isArray(r.peers) ? r.peers : [],
+    };
+  } catch {
+    return { symbol, industryPlate: null, peers: [] };
+  }
 }
 

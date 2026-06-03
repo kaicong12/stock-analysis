@@ -5,12 +5,14 @@ import styles from "../page.module.css";
 import type {
   CommentSentimentResult,
   DigestResult,
+  InsiderFlowItem,
   NewsItem,
   NewsResult,
   PanelDirection,
   PanelEvidence,
   PanelMeta,
   PanelSummary,
+  ReadThrough,
   Verdict,
 } from "../../lib/types";
 import { relTime } from "./format";
@@ -23,6 +25,7 @@ export const PANEL_LABELS: Record<keyof Verdict["panels"], string> = {
   digest: "Stock Digest",
   sentiment: "Community Sentiment",
   fundamentals: "Fundamentals",
+  insider: "Insider Flow",
 };
 
 export function Panel(props: {
@@ -37,6 +40,8 @@ export function Panel(props: {
   const summary = props.summary;
   const evidence = summary?.evidence ?? [];
   const meta = summary?.meta ?? [];
+  const readThrough = summary?.readThrough ?? [];
+  const insiderFlow = summary?.insiderFlow ?? [];
   const showFeed = !!props.feed && props.feed.posts.length > 0;
   const showNewsFallback = !summary?.evidence && !!props.news && props.news.items.length > 0;
   return (
@@ -67,9 +72,13 @@ export function Panel(props: {
           </div>
         )}
 
-        {(evidence.length > 0 || showNewsFallback || showFeed) && <div className={styles.panelDivider} />}
+        {(evidence.length > 0 || showNewsFallback || showFeed || readThrough.length > 0 || insiderFlow.length > 0) && (
+          <div className={styles.panelDivider} />
+        )}
         {evidence.length > 0 && <EvidenceList items={evidence} />}
         {evidence.length === 0 && showNewsFallback && <NewsList items={props.news!.items} />}
+        {readThrough.length > 0 && <ReadThroughBlock items={readThrough} />}
+        {insiderFlow.length > 0 && <InsiderFlowBlock items={insiderFlow} />}
         {showFeed && <FeedList posts={props.feed!.posts} />}
       </div>
     </section>
@@ -117,6 +126,88 @@ function EvidenceList({ items }: { items: PanelEvidence[] }) {
           <span className={styles.evidenceTitle}>{item.title}</span>
         </a>
       ))}
+    </div>
+  );
+}
+
+const RT_DIR_CLS: Record<ReadThrough["direction"], string> = {
+  bullish: "rtBullish",
+  bearish: "rtBearish",
+  neutral: "rtNeutral",
+};
+
+// Peer read-through: sector-peer news with a read-through direction FOR this
+// ticker. Deliberately rendered apart from the self-news evidence so peer
+// headlines are never mistaken for the ticker's own news.
+function ReadThroughBlock({ items }: { items: ReadThrough[] }) {
+  return (
+    <div>
+      <div className={styles.readThroughLabel}>Sector read-through</div>
+      <div className={styles.readThroughList}>
+        {items.slice(0, 5).map((it, i) => (
+          <a
+            key={i}
+            className={styles.readThroughItem + " " + styles[RT_DIR_CLS[it.direction]]}
+            href={it.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div className={styles.readThroughHead}>
+              <span className={styles.readThroughDot} />
+              <span className={styles.readThroughPeer}>{it.peer}</span>
+              <span className={styles.readThroughClass}>{it.classification.replace("-", " ")}</span>
+            </div>
+            <span className={styles.readThroughNote}>{it.note}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const INSIDER_DIR_CLS: Record<InsiderFlowItem["direction"], string> = {
+  buy: "rtBullish",
+  sell: "rtBearish",
+  neutral: "rtNeutral",
+};
+
+function insiderMoney(v: number): string {
+  const a = Math.abs(v);
+  if (a >= 1_000_000) return `$${(a / 1_000_000).toFixed(1)}M`;
+  if (a >= 1_000) return `$${Math.round(a / 1_000)}K`;
+  if (a > 0) return `$${Math.round(a)}`;
+  return "—";
+}
+
+// Insider transaction sub-block. Discretionary open-market buys/sells get a
+// green/red left border (the conviction trades); routine 10b5-1 plan sells and
+// comp plumbing (grants/exercises/tax) render neutral grey with a "routine" tag,
+// so a large-cap's wall of pre-scheduled selling never reads as red conviction.
+function InsiderFlowBlock({ items }: { items: InsiderFlowItem[] }) {
+  return (
+    <div>
+      <div className={styles.readThroughLabel}>Recent Form 4 transactions</div>
+      <div className={styles.readThroughList}>
+        {items.slice(0, 8).map((it, i) => {
+          const pct = it.pctOfHoldings !== null && it.pctOfHoldings > 0
+            ? ` · ${(it.pctOfHoldings * 100).toFixed(1)}% of stake`
+            : "";
+          return (
+            <div key={i} className={styles.readThroughItem + " " + styles[INSIDER_DIR_CLS[it.direction]]}>
+              <div className={styles.readThroughHead}>
+                <span className={styles.readThroughDot} />
+                <span className={styles.readThroughPeer}>{it.name}</span>
+                {it.routine && <span className={styles.insiderRoutineTag}>routine</span>}
+                <span className={styles.readThroughClass}>{it.typeLabel}</span>
+              </div>
+              <span className={styles.readThroughNote}>
+                {it.title} · {it.shares.toLocaleString()} sh · {insiderMoney(it.value)}
+                {pct}{it.date ? ` · ${it.date}` : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

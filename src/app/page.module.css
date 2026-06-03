@@ -821,6 +821,83 @@
   color: var(--on-surface);
 }
 
+/* News-panel peer read-through sub-block. A direction-colored left border and
+   per-item peer tag keep these visually distinct from the ticker's own news. */
+.readThroughLabel {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  margin-bottom: 6px;
+}
+.readThroughList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.readThroughItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--outline-variant);
+  border-left: 2px solid currentColor;
+  background: var(--surface-container-low);
+  transition: background 120ms ease, border-color 120ms ease;
+  text-decoration: none;
+  color: var(--neutral);
+}
+.readThroughItem:hover { background: var(--surface-container-high); }
+.rtBullish { color: var(--bullish); }
+.rtBearish { color: var(--bearish); }
+.rtNeutral { color: var(--neutral); }
+.readThroughHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.readThroughDot {
+  width: 7px; height: 7px; border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+}
+.readThroughPeer {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--on-surface);
+  font-variant-numeric: tabular-nums;
+}
+.readThroughClass {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  margin-left: auto;
+}
+.readThroughNote {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--on-surface-variant);
+}
+
+/* "routine" pill on insider rows — marks 10b5-1 plan sells / comp plumbing as
+   non-conviction so they're visually demoted from the discretionary trades. */
+.insiderRoutineTag {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 1px 5px;
+}
+
 /* Verdict adjustment block — the "what to actually do" panel. */
 .adjustmentBlock {
   display: flex;

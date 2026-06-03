@@ -77,6 +77,38 @@ export interface VolSummary {
   hvSampleSize: number;
 }
 
+// Deterministic price-action / breakdown signal from the sidecar's /price-action
+// (yfinance daily OHLCV). Feeds the verdict's "falling-knife guard": a confirmed
+// `signal: "breakdown"` HARD-VETOES selling put spreads / CSPs into the decline;
+// a `"breakout"` hard-vetoes selling call spreads / covered calls into a melt-up.
+// All numbers are computed server-side so the guard can't be argued out of by a
+// mean-reversion-happy technical panel. Null fields when bars are insufficient.
+export type PriceActionSignal = "breakdown" | "breakout" | "none";
+
+export interface PriceAction {
+  symbol: string;
+  signal: PriceActionSignal;
+  severity: "severe" | "mild" | "none";
+  reasons: string[];                 // human-readable triggers, e.g. "9.2% below 50d MA"
+  spot: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  pctVsSma50: number | null;         // % above(+)/below(-) the 50-day SMA
+  pctVsSma200: number | null;
+  pctOffHigh20: number | null;       // % off the 20-day high (<= 0)
+  atLow20: boolean;                  // within ~1% of the 20-day low
+  atHigh20: boolean;                 // within ~1% of the 20-day high
+  consecutiveDownDays: number;
+  consecutiveUpDays: number;
+  todayChangePct: number | null;     // latest close vs prior close
+  gapPct: number | null;             // latest open vs prior close
+  volRatio: number | null;           // latest volume / 20-day avg volume
+  hv30: number | null;
+  hv60: number | null;
+  hvExpansion: number | null;        // hv30 / hv60; > 1 = realized vol expanding
+  barsUsed: number;
+}
+
 // Fundamentals from yfinance (via python sidecar). All numeric fields are
 // nullable — yfinance returns sparse data for non-US listings, ETFs, and
 // freshly-IPO'd names.
@@ -210,6 +242,117 @@ export interface PanelMeta {
   value: string;
 }
 
+// A large-cap sector peer resolved from OpenD plates (sidecar /peers).
+export interface PeerInfo {
+  code: string;   // moomoo symbol, e.g. "US.NVDA"
+  name: string | null;
+  capBn: number;  // market cap in $B
+  price: number;
+}
+
+export interface PeersResult {
+  symbol: string;
+  industryPlate: string | null;
+  peers: PeerInfo[];
+}
+
+// One peer-news read-through entry in the News Flow panel's sub-block.
+// Kept strictly separate from the self-news fields (direction/headline/etc.):
+// peer news must never influence the panel's own-ticker direction.
+export type ReadThroughClass = "sector-sentiment" | "competitive" | "shared-input";
+
+export interface ReadThrough {
+  peer: string;                  // peer ticker, e.g. "NVDA"
+  classification: ReadThroughClass;
+  direction: "bullish" | "bearish" | "neutral";  // read-through FOR the panel's ticker
+  note: string;
+  url: string;
+}
+
+// A peer-news item after the fan-out + collation step (httpApi.collatePeerNews).
+export interface PeerNewsItem {
+  source: string;     // peer ticker the item surfaced under
+  title: string;
+  url: string;
+  publishTime: number;
+}
+
+// ----- Insider transactions (SEC Form 4 via Massive, ex-Polygon) -----
+
+// One Form 4 transaction line, adapted from the vendor payload. `code` is the
+// raw SEC transaction code (P/S/A/M/F/G/...); `isOpenMarket` is true only for
+// P (open-market buy) and S (open-market sell) — the conviction trades.
+export interface InsiderTransaction {
+  name: string;
+  title: string;
+  code: string;
+  typeLabel: string;        // human-readable code, e.g. "Buy (open mkt)"
+  isOpenMarket: boolean;
+  // True when the trade was made under a pre-scheduled Rule 10b5-1 plan
+  // (aff_10b5_one). Plan sales are automatic/pre-committed and carry NO
+  // directional conviction — the single most important field for reading
+  // large-cap selling honestly (most mega-cap insider selling is 10b5-1).
+  isPlan: boolean;
+  // Discretionary = open-market AND not a 10b5-1 plan trade. The only sells
+  // that carry a bearish signal; all open-market buys are discretionary.
+  isDiscretionary: boolean;
+  transactionDate: string;  // ISO YYYY-MM-DD
+  filingDate: string;       // ISO YYYY-MM-DD
+  shares: number;
+  price: number;            // per-share; 0 for grants/exercises/gifts
+  value: number;            // shares × price (vendor-provided when available)
+  sharesOwnedAfter: number | null;
+  // Fraction of the insider's post-trade stake that this trade represents:
+  // shares / (shares + sharesOwnedAfter). A 60%-of-stake sell is conviction;
+  // a 2%-of-stake sell is routine diversification. null when holdings unknown.
+  pctOfHoldings: number | null;
+  acquiredDisposed: string | null;  // "A" acquired / "D" disposed
+}
+
+// Deterministic aggregates over the window — computed in code, never by the LLM,
+// so the figures the panel and verdict cite are always exact. The directional
+// read keys off DISCRETIONARY flow (buys + non-plan sells); routine 10b5-1
+// selling is tracked separately and excluded from the conviction signal.
+export interface InsiderFlowSummary {
+  buyCount: number;              // open-market BUY (code P) transactions (all discretionary)
+  buyValue: number;              // total $ open-market bought
+  distinctBuyers: number;        // distinct insiders buying open-market (cluster signal)
+  // Discretionary (non-plan) open-market sells — the actual bearish signal.
+  discSellCount: number;
+  discSellValue: number;
+  distinctDiscSellers: number;   // distinct discretionary sellers (cluster = stronger)
+  // Routine Rule 10b5-1 pre-scheduled sells — tracked, but NOT a conviction signal.
+  planSellCount: number;
+  planSellValue: number;
+  // Net CONVICTION value = buyValue − discSellValue (plan sells excluded).
+  // Positive = net discretionary accumulation; negative = net discretionary selling.
+  netConviction: number;
+  totalFilings: number;          // all Form 4 rows in the window (incl. non-open-market)
+}
+
+export interface InsiderResult {
+  ticker: string;
+  transactions: InsiderTransaction[];  // full window, recency order
+  notable: InsiderTransaction[];       // open-market-first, value-ranked, capped
+  flow: InsiderFlowSummary;
+}
+
+// One row rendered in the insider panel's transaction sub-block. Attached to the
+// PanelSummary in code (deterministic) — distinct from the LLM-authored bullets.
+// `direction` drives the row colour: a routine 10b5-1 sell renders "neutral"
+// (not red) so the user can see at a glance that it isn't a conviction signal.
+export interface InsiderFlowItem {
+  name: string;
+  title: string;
+  typeLabel: string;          // e.g. "Buy (open mkt)", "Sell (10b5-1)", "Sell (open mkt)"
+  direction: "buy" | "sell" | "neutral";  // buy = P; sell = discretionary S; neutral = plan S / grant / exercise / etc.
+  routine: boolean;           // true for 10b5-1 plan sells and comp plumbing
+  date: string;
+  shares: number;
+  value: number;
+  pctOfHoldings: number | null;  // fraction of stake traded (for discretionary trades)
+}
+
 export interface PanelSummary {
   headline: string;
   bullets: string[];
@@ -217,6 +360,10 @@ export interface PanelSummary {
   conclusion?: string;
   evidence?: PanelEvidence[];
   meta?: PanelMeta[];
+  readThrough?: ReadThrough[];
+  // Insider panel only: deterministic transaction rows attached in code (the LLM
+  // writes the narrative; these carry the exact numbers the UI renders).
+  insiderFlow?: InsiderFlowItem[];
 }
 
 // ----- Verdict — dual sleeve (stock half + derivatives half) -----
@@ -353,6 +500,7 @@ export interface Verdict {
     digest: PanelSummary;
     sentiment: PanelSummary;
     fundamentals: PanelSummary;
+    insider: PanelSummary;
   };
 }
 

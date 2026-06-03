@@ -31,12 +31,13 @@ import {
   IconDoc,
   IconFundamentals,
   IconHeart,
+  IconInsider,
   IconNews,
   IconOptions,
 } from "./components/icons";
 
 type PanelKey = keyof Verdict["panels"];
-const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "derivatives", "sentiment", "digest", "news"];
+const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "derivatives", "sentiment", "digest", "news", "insider"];
 
 interface PanelState {
   status: "idle" | "loading" | "ready" | "error";
@@ -571,5 +572,6 @@ function panelIcon(name: PanelKey): ReactNode {
     case "digest": return <IconDoc />;
     case "sentiment": return <IconHeart />;
     case "fundamentals": return <IconFundamentals />;
+    case "insider": return <IconInsider />;
   }
 }

@@ -1,5 +1,7 @@
-import { getStockFeed, newsForDigest, searchNews } from "../moomoo/httpApi";
-import { getAnomaly, getFundamentals, getVolSummary } from "../moomoo/sidecar";
+import { collatePeerNews, getStockFeed, newsForDigest, searchNews } from "../moomoo/httpApi";
+import { getAnomaly, getFundamentals, getPeers, getVolSummary } from "../moomoo/sidecar";
+import { getInsiderTransactions } from "../massive/insider";
+import { ticker as toTicker } from "../symbol";
 import type { PanelSummary } from "../types";
 import type { PanelKey } from "../batch/protocol";
 import {
@@ -7,6 +9,7 @@ import {
   analyzeDerivatives,
   analyzeDigest,
   analyzeFundamentals,
+  analyzeInsider,
   analyzeNews,
   analyzeSentiment,
   analyzeTechnical,
@@ -48,8 +51,12 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
       return { summary: await analyzeDerivatives(data, ctx, vol) };
     }
     case "news": {
-      const data = await searchNews(ticker);
-      return { summary: await analyzeNews(data, ctx) };
+      // Self news + the peer graph in parallel. getPeers never throws (returns
+      // an empty list on any failure), so the self-news block always renders.
+      const [data, peers] = await Promise.all([searchNews(ticker), getPeers(symbol)]);
+      const peerTickers = peers.peers.map((p) => toTicker(p.code));
+      const peerNews = peerTickers.length ? await collatePeerNews(peerTickers) : [];
+      return { summary: await analyzeNews(data, ctx, peerNews) };
     }
     case "digest": {
       const data = await newsForDigest(ticker);
@@ -65,6 +72,13 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
         summary: await analyzeFundamentals(data, ctx),
         nextEarningsDate: data?.data?.nextEarningsDate ?? null,
       };
+    }
+    case "insider": {
+      // SEC Form 4 via Massive (ex-Polygon). getInsiderTransactions never throws
+      // (empty result on any failure / missing key), so the panel degrades to
+      // "No insider activity" rather than failing the run.
+      const data = await getInsiderTransactions(ticker);
+      return { summary: await analyzeInsider(data, ctx) };
     }
   }
 }

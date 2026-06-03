@@ -6,6 +6,7 @@ import type {
   Portfolio,
   Position,
   PositionAdjustment,
+  PriceAction,
   SleeveDirection,
   SleeveVerdict,
   SnapshotResult,
@@ -90,7 +91,7 @@ const VERDICT_RESPONSE_SCHEMA = {
 
 // ---------- system instruction ----------
 
-const SYSTEM_INSTRUCTION = `You are the head PM at an institutional desk managing a barbell portfolio: ~50% in long-term stock holdings and ~50% deployed in defined-risk derivatives. Seven desk analysts have already produced structured panel reads (capital flow, technicals, derivatives anomaly, news, digest, community sentiment, fundamentals). You read those panels + the user's IBKR portfolio + ALL existing positions on this ticker (stock + every option leg), and issue ONE dual-sleeve verdict: a stock-side action AND a derivatives-side action. Both sleeves get sized to the user's actual NAV.
+const SYSTEM_INSTRUCTION = `You are the head PM at an institutional desk managing a barbell portfolio: ~50% in long-term stock holdings and ~50% deployed in defined-risk derivatives. Eight desk analysts have already produced structured panel reads (capital flow, technicals, derivatives anomaly, news, digest, community sentiment, fundamentals, insider activity). You read those panels + the user's IBKR portfolio + ALL existing positions on this ticker (stock + every option leg), and issue ONE dual-sleeve verdict: a stock-side action AND a derivatives-side action. Both sleeves get sized to the user's actual NAV.
 
 The fundamentals panel is the longest-horizon input — valuation, growth, margins, balance-sheet, analyst targets, next earnings date. Treat it as the QUALITY filter: a stock that screens "bullish" on flow + technicals but is fundamentally broken (negative FCF, decelerating growth, debt-equity > 3x) is a weaker thesis than the technicals alone suggest. Conversely, fundamentals "neutral" on a name with strong technical/flow signals does NOT veto an entry — it just caps conviction. ALWAYS check the fundamentals panel for nextEarningsDate: if earnings are within ~10 days, prefer SHORT-vega income trades (CSP/covered call) over DEBIT spreads, because IV will crush after the print regardless of direction.
 
@@ -144,6 +145,15 @@ DERIVATIVES SLEEVE — strategy menu STRICTLY from this list (with NET VEGA expo
 - ROLL_OUT: defensive maneuver on a held option — close existing leg(s), open later-expiry replacement(s) for net credit. Buys time + (often) lowers the short strike, in exchange for extending duration on a struggling trade. Pick this BEFORE picking CLOSE when a held short leg is going against the user but still has time to recover.
 - INCREASE / TRIM / HOLD / CLOSE: only when user already holds an option position on this name.
 - PASS: sit out — see PASS criteria immediately below.
+
+FALLING-KNIFE / MOMENTUM GUARD (HIGHEST PRIORITY — check this FIRST, before PASS criteria, IV regime, and eligibility). The payload's \`priceAction\` block is a deterministic, server-computed read of price/volume. It exists to stop the single most damaging conservative-trader mistake: selling premium INTO the move (a bull put spread into a breakdown, a bear call spread into a melt-up). This is a HARD gate, not a soft preference.
+- When \`priceAction.signal === "breakdown"\`: SELL_PUT_SPREAD and SELL_CASH_SECURED_PUT are FORBIDDEN as NEW entries. The underlying is breaking down on confirmed price action (the \`reasons\` array lists why — e.g. below 50d/200d MA, at 20d lows, heavy volume, gap-down, consecutive down days). Do NOT sell downside premium into that. Choose PASS (default), or — only if the bearish thesis is independently clean across the other panels — SELL_CALL_SPREAD. The rationale MUST open by naming the breakdown and quoting at least one concrete \`reasons\` item (e.g. "Breakdown guard: NFLX 9.2% below 50d MA, 7 consecutive down days — not selling puts into a confirmed breakdown.").
+- When \`priceAction.signal === "breakout"\`: SELL_CALL_SPREAD and SELL_COVERED_CALL are FORBIDDEN as NEW entries (mirror logic — don't sell upside premium into a melt-up). Choose PASS, or SELL_PUT_SPREAD / SELL_CASH_SECURED_PUT only if the bullish thesis is independently clean. Same rationale-citation requirement.
+- A "severe" severity makes PASS the strong default; do NOT flip to the opposite-side credit on a severe breakdown/breakout unless the thesis is overwhelming — a violent move often round-trips.
+- This gate OUTRANKS the technical panel. If the technical panel reads "bullish" on oversold-rebound / golden-cross-in-oversold signals (RSI/KDJ/反弹) while \`priceAction.signal === "breakdown"\`, that is a MEAN-REVERSION read, NOT a green light to sell puts — the breakdown guard wins. Say so explicitly in the rationale.
+- The guard governs NEW entries only. It does NOT block managing existing positions (HOLD / CLOSE / ROLL_OUT / TRIM on a held leg) — defending or exiting a position you already hold is unaffected.
+- The guard governs the DERIVATIVES credit sleeve. The stock sleeve is separate: a breakdown can be a legitimate long-term accumulation entry, so it does not auto-forbid a stock OPEN — but call out the breakdown in the stock rationale and prefer conservative/starter sizing or staged entry.
+- When \`priceAction.signal === "none"\`, this guard is inert; proceed normally.
 
 PASS criteria — apply BEFORE the IV regime / eligibility logic below to skip the sleeve entirely. The derivatives sleeve is NOT obligated to find a trade; "no opinion" is a valid stance and routinely the right one for a conservative book.
 - Conviction < 55 AND the derivatives panel does not cite an IV-HV premium → PASS. At coin-flip conviction with fairly-priced vol, neither credit nor debit has a structural edge.
@@ -268,6 +278,18 @@ rationale (3-5 sentences): cite the panel summaries by name and quote concrete s
 
 riskFactor: one sentence — the single thing that, if it happens, invalidates BOTH sleeve calls.
 
+Peer read-through (the news panel's \`readThrough[]\`): the news panel may carry sector-peer events tagged with a read-through direction FOR this ticker. Treat these as a RISK OVERLAY / tiebreaker, NOT a primary driver — the ticker's own panels set the thesis. Specifically:
+- A bearish + "competitive" read-through is a caution flag against selling premium on this name: prefer smaller size, wider spreads, or PASS. It must NOT, on its own, flip an otherwise-bullish verdict bearish.
+- "shared-input" read-throughs (a common supplier/cost/regulatory shock — e.g. TSMC pricing, HBM supply, export rules) can hit the whole sleeve; weight them more heavily and name them in riskFactor when material.
+- "sector-sentiment" read-throughs are soft context only.
+Cite the peer ticker + event whenever a read-through influences the call.
+
+Insider activity (the \`insider\` panel — SEC Form 4 disclosures): treat this as a CONVICTION OVERLAY on direction and on premium-selling risk, NOT a standalone thesis-driver.
+- ONLY DISCRETIONARY open-market trades carry signal. The panel splits selling into "Disc. Sells" (discretionary, conviction) and "Routine" (Rule 10b5-1 pre-scheduled plan sales). For a large-cap, insider selling is almost always dominated by routine 10b5-1 diversification — that is NORMAL and NOT bearish. Read the panel's "Net Conviction" chip (buys − discretionary sells), NOT gross selling.
+- A cluster of DISTINCT insiders buying open-market is a genuine bullish tell — it supports a bullish-to-neutral SELL_PUT_SPREAD / CSP bias and can raise conviction a notch. Meaningful DISCRETIONARY selling (large fraction of an insider's stake, or a cluster of distinct discretionary sellers) leans bearish and is a caution flag against selling downside premium (bull put / CSP) — prefer the bear-side credit, smaller size, or PASS.
+- DO NOT treat routine 10b5-1 plan selling or comp plumbing (option-exercise, tax-withholding, grants, gifts) as bearish — even when the gross dollar figure is large. A CEO's pre-scheduled plan sale or exercise-and-sell-to-cover is not conviction. When the insider panel's direction is "neutral" because selling is all routine, it neither helps nor hurts — say nothing about it (do NOT cite gross selling as a risk).
+- Insider flow NEVER, on its own, flips a verdict that the price/flow/fundamentals panels set. It adjusts conviction and sizing at the margin. When it does influence the call, cite the DISCRETIONARY figure (e.g. "insider panel: 2 discretionary sells totaling $71M at >25% of stake, zero buys — trimming size on the bull put spread"), and explicitly disregard routine plan selling.
+
 Hard rules:
 - Sizing always references the user's actual portfolio (NAV, available cash, current position size).
 - Don't recommend covered calls when no shares are held.
@@ -282,6 +304,9 @@ export interface SynthInput {
   portfolio: Portfolio | null;
   heldPositions: Position[];
   heldGroups: HeldGroup[];
+  // Deterministic price-action breakdown/breakout signal (falling-knife guard).
+  // Null when the sidecar is unavailable — the guard then no-ops.
+  priceAction: PriceAction | null;
   panels: {
     capital: PanelSummary;
     technical: PanelSummary;
@@ -290,6 +315,7 @@ export interface SynthInput {
     digest: PanelSummary;
     sentiment: PanelSummary;
     fundamentals: PanelSummary;
+    insider: PanelSummary;
   };
 }
 
@@ -327,12 +353,39 @@ function daysUntil(dateStr: string | null | undefined): number | null {
   return Math.round((target - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
+// Round a nullable number for compact prompt payloads.
+function r1(v: number | null): number | null {
+  return v === null ? null : Number(v.toFixed(1));
+}
+
+// Compact view of the price-action signal for the prompt. Null input (sidecar
+// down) collapses to signal "none" so the guard prose simply finds nothing to
+// fire on.
+function compressPriceAction(pa: PriceAction | null) {
+  if (!pa) return { signal: "none", severity: "none", reasons: [] as string[] };
+  return {
+    signal: pa.signal,
+    severity: pa.severity,
+    reasons: pa.reasons,
+    pctVsSma50: r1(pa.pctVsSma50),
+    pctVsSma200: r1(pa.pctVsSma200),
+    pctOffHigh20: r1(pa.pctOffHigh20),
+    consecutiveDownDays: pa.consecutiveDownDays,
+    consecutiveUpDays: pa.consecutiveUpDays,
+    gapPct: r1(pa.gapPct),
+    volRatio: pa.volRatio === null ? null : Number(pa.volRatio.toFixed(2)),
+  };
+}
+
 function compressPanel(p: PanelSummary) {
   return {
     direction: p.direction,
     headline: p.headline,
     conclusion: p.conclusion,
     bullets: p.bullets,
+    // Peer read-through reaches the verdict as a risk overlay (news panel only;
+    // undefined elsewhere). See the "Peer read-through" clause in SYSTEM_INSTRUCTION.
+    ...(p.readThrough && p.readThrough.length > 0 ? { readThrough: p.readThrough } : {}),
   };
 }
 
@@ -476,6 +529,9 @@ function buildPrompt(input: SynthInput): string {
       cspTradeCurrency: elig.cspTradeCurrency,
       cspBaseCurrency: elig.cspBaseCurrency,
     },
+    // Deterministic falling-knife / melt-up guard (server-computed price action).
+    // See the FALLING-KNIFE / MOMENTUM GUARD section in SYSTEM_INSTRUCTION.
+    priceAction: compressPriceAction(input.priceAction),
     panelSummaries: {
       capital: compressPanel(input.panels.capital),
       technical: compressPanel(input.panels.technical),
@@ -484,6 +540,7 @@ function buildPrompt(input: SynthInput): string {
       digest: compressPanel(input.panels.digest),
       sentiment: compressPanel(input.panels.sentiment),
       fundamentals: compressPanel(input.panels.fundamentals),
+      insider: compressPanel(input.panels.insider),
     },
   };
 
@@ -658,6 +715,31 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
       derivAction = fallback;
       derivInstr = `[Auto-corrected: PASS rationale cited CSP cash gate, but ${fallback === "SELL_PUT_SPREAD" ? "bull put spread" : "bear call spread"} is the cash-light credit fallback at the same directional thesis. Switched.] ${derivInstr}`;
     }
+  }
+
+  // FALLING-KNIFE / MOMENTUM GUARD (deterministic enforcement). Runs LAST so it
+  // has the final say over derivAction, regardless of what the model or the
+  // earlier eligibility overrides produced. The prompt instructs the model to
+  // self-apply this, but it sometimes sells premium into the move anyway — this
+  // is the hard backstop. Blocks NEW wrong-side credit entries only; management
+  // actions (HOLD/CLOSE/ROLL_OUT/TRIM/INCREASE) pass through untouched.
+  const pa = input.priceAction;
+  if (pa && pa.signal === "breakdown" && (derivAction === "SELL_PUT_SPREAD" || derivAction === "SELL_CASH_SECURED_PUT")) {
+    const why = pa.reasons.slice(0, 3).join("; ") || "confirmed downside breakdown";
+    console.warn(
+      `[synth] FALLING-KNIFE GUARD: model picked ${derivAction} into a breakdown ` +
+        `(${input.ticker}: ${why}). Overriding to PASS.`,
+    );
+    derivAction = "PASS";
+    derivInstr = `[Auto-corrected: breakdown guard — ${input.ticker} is breaking down (${why}). Not selling downside premium into a falling knife; standing aside.] ${derivInstr}`;
+  } else if (pa && pa.signal === "breakout" && (derivAction === "SELL_CALL_SPREAD" || derivAction === "SELL_COVERED_CALL")) {
+    const why = pa.reasons.slice(0, 3).join("; ") || "confirmed upside breakout";
+    console.warn(
+      `[synth] MELT-UP GUARD: model picked ${derivAction} into a breakout ` +
+        `(${input.ticker}: ${why}). Overriding to PASS.`,
+    );
+    derivAction = "PASS";
+    derivInstr = `[Auto-corrected: melt-up guard — ${input.ticker} is breaking out (${why}). Not selling upside premium into a melt-up; standing aside.] ${derivInstr}`;
   }
 
   // Server-computed sizing footer: strip any "% NAV" prose the model wrote
