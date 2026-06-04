@@ -1,5 +1,5 @@
 import { collatePeerNews, getStockFeed, newsForDigest, searchNews } from "../moomoo/httpApi";
-import { getAnomaly, getFundamentals, getPeers, getVolSummary } from "../moomoo/sidecar";
+import { getAnomaly, getFundamentals, getPeers, getTechnicalIndicators, getVolSummary } from "../moomoo/sidecar";
 import { getInsiderTransactions } from "../massive/insider";
 import { ticker as toTicker } from "../symbol";
 import type { PanelSummary } from "../types";
@@ -37,8 +37,14 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
       return { summary: await analyzeCapital(data, ctx) };
     }
     case "technical": {
-      const data = await getAnomaly("technical", symbol);
-      return { summary: await analyzeTechnical(data, ctx) };
+      // Anomaly EVENTS + standing indicator STATE in parallel (different
+      // upstreams: moomoo /anomaly/technical vs. yfinance daily OHLCV). The
+      // panel shows the indicator state even when no fresh anomaly tripped.
+      const [data, indicators] = await Promise.all([
+        getAnomaly("technical", symbol),
+        getTechnicalIndicators(symbol),
+      ]);
+      return { summary: await analyzeTechnical(data, ctx, indicators) };
     }
     case "derivatives": {
       // Fetch the anomaly report and the structured vol summary in parallel —

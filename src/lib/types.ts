@@ -109,6 +109,41 @@ export interface PriceAction {
   barsUsed: number;
 }
 
+// Standing technical-indicator readings from the sidecar's /technical/indicators
+// (computed from cached daily OHLCV). Complements the technical ANOMALY feed
+// (get_technical_unusual), which only fires on fresh cross/threshold EVENTS and
+// is blind to a persistent state like "RSI has been > 70 for weeks". Null fields
+// when there aren't enough bars for that indicator. Computed server-side, never
+// via the LLM, so the figures the panel/verdict cite are exact.
+export type RsiState = "overbought" | "oversold" | "neutral" | "n/a";
+
+export interface TechnicalIndicators {
+  symbol: string;
+  spot: number | null;
+  asOf: string | null;               // ISO date of the latest bar used
+  barsUsed: number;
+  rsi14: number | null;              // Wilder RSI(14); >=70 overbought, <=30 oversold
+  rsiState: RsiState;
+  macd: number | null;               // MACD line (EMA12 - EMA26)
+  macdSignal: number | null;         // 9-period EMA of the MACD line
+  macdHist: number | null;           // macd - signal; >0 bullish, <0 bearish
+  bbUpper: number | null;            // Bollinger(20,2) upper band
+  bbMid: number | null;              // 20-day SMA (band midline)
+  bbLower: number | null;
+  bbPctB: number | null;             // %B: >1 above upper band, <0 below lower
+  sma20: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  pctVsSma20: number | null;         // % above(+)/below(-) the 20-day SMA
+  pctVsSma50: number | null;
+  pctVsSma200: number | null;
+  high52w: number | null;
+  low52w: number | null;
+  pctOff52wHigh: number | null;      // % off the 52-week high (<= 0)
+  ret5d: number | null;              // 5-trading-day % return
+  ret20d: number | null;             // 20-trading-day % return
+}
+
 // Fundamentals from yfinance (via python sidecar). All numeric fields are
 // nullable — yfinance returns sparse data for non-US listings, ETFs, and
 // freshly-IPO'd names.

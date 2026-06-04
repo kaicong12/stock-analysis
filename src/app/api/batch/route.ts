@@ -9,7 +9,7 @@ import {
 import { runWithConcurrency } from "../../../lib/concurrency";
 import { panelError, runPanel } from "../../../lib/gemini/runPanel";
 import { synthesizeVerdict } from "../../../lib/gemini/synth";
-import { getPriceAction, getSnapshot } from "../../../lib/moomoo/sidecar";
+import { getPriceAction, getSnapshot, getTechnicalIndicators } from "../../../lib/moomoo/sidecar";
 import { prepareSharedPortfolio, prepareTickerSubset } from "../../../lib/positions/prepare";
 import { normalizeSymbol, ticker as toTicker } from "../../../lib/symbol";
 import type { PanelSummary, SnapshotResult, Verdict } from "../../../lib/types";
@@ -82,9 +82,11 @@ export async function GET(request: NextRequest) {
           send({ ticker: tk, stage: "prep", status: "done" });
 
           send({ ticker: tk, stage: "panels", status: "loading" });
-          // Price-action signal (falling-knife guard) fetched in parallel with the
-          // panels — independent sidecar call, never throws.
+          // Price-action signal (falling-knife guard) + standing technical
+          // indicators fetched in parallel with the panels — independent sidecar
+          // calls, never throw.
           const priceActionPromise = getPriceAction(symbol);
+          const technicalIndicatorsPromise = getTechnicalIndicators(symbol);
           const panels: Record<PanelKey, PanelSummary> = {} as Record<PanelKey, PanelSummary>;
           let nextEarningsDate: string | null = null;
           const panelResults = await Promise.allSettled(
@@ -115,6 +117,7 @@ export async function GET(request: NextRequest) {
               heldPositions: subset.heldPositions,
               heldGroups: subset.heldGroups,
               priceAction: await priceActionPromise,
+              technicalIndicators: await technicalIndicatorsPromise,
               panels,
             });
             verdict = { ...synth, panels };

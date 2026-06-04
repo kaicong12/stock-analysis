@@ -11,6 +11,7 @@ import type {
   SleeveVerdict,
   SnapshotResult,
   StockAction,
+  TechnicalIndicators,
   Verdict,
 } from "../types";
 
@@ -154,6 +155,13 @@ FALLING-KNIFE / MOMENTUM GUARD (HIGHEST PRIORITY — check this FIRST, before PA
 - The guard governs NEW entries only. It does NOT block managing existing positions (HOLD / CLOSE / ROLL_OUT / TRIM on a held leg) — defending or exiting a position you already hold is unaffected.
 - The guard governs the DERIVATIVES credit sleeve. The stock sleeve is separate: a breakdown can be a legitimate long-term accumulation entry, so it does not auto-forbid a stock OPEN — but call out the breakdown in the stock rationale and prefer conservative/starter sizing or staged entry.
 - When \`priceAction.signal === "none"\`, this guard is inert; proceed normally.
+
+TECHNICAL INDICATOR STATE (the payload's \`technicalIndicators\` block — server-computed standing state, NOT anomaly events):
+This carries the CURRENT readings: rsi14 (+rsiState), macd/macdSignal/macdHist, bbPctB (Bollinger %B), pctVsSma20/50/200, pctOff52wHigh, ret5d/ret20d. Use it as a momentum / extension overlay on the directional read and on premium-selling risk — it does NOT, on its own, set the thesis (the panels do). Specifically:
+- rsiState "overbought" (rsi14 ≥ 70) or bbPctB ≥ 1.0 with price far above the 200d (pctVsSma200 large) = extended; this is a CAUTION flag against selling DOWNSIDE premium chasing the trend (bull put / CSP) — prefer smaller size or wider strikes, and it reinforces (does not create) a SELL_CALL_SPREAD lean only if the panels are already bearish-to-neutral.
+- rsiState "oversold" (rsi14 ≤ 30) or bbPctB ≤ 0 = the mirror; caution against selling UPSIDE premium.
+- When the indicator state conflicts with the technical PANEL's prose, the numbers here win (they're server-computed, the panel narrative is LLM-written). The block may be null/absent — then ignore it.
+- When the state is material, cite a number in the rationale (e.g. "technicalIndicators: RSI 80.7, +199.9% vs 200d — overbought, trimming bull-put size").
 
 PASS criteria — apply BEFORE the IV regime / eligibility logic below to skip the sleeve entirely. The derivatives sleeve is NOT obligated to find a trade; "no opinion" is a valid stance and routinely the right one for a conservative book.
 - Conviction < 55 AND the derivatives panel does not cite an IV-HV premium → PASS. At coin-flip conviction with fairly-priced vol, neither credit nor debit has a structural edge.
@@ -307,6 +315,10 @@ export interface SynthInput {
   // Deterministic price-action breakdown/breakout signal (falling-knife guard).
   // Null when the sidecar is unavailable — the guard then no-ops.
   priceAction: PriceAction | null;
+  // Standing technical-indicator state (RSI/MACD/Bollinger/SMA distances),
+  // server-computed. Complements the technical panel's anomaly EVENTS with the
+  // current STATE (e.g. overbought). Null when the sidecar is unavailable.
+  technicalIndicators: TechnicalIndicators | null;
   panels: {
     capital: PanelSummary;
     technical: PanelSummary;
@@ -386,6 +398,13 @@ function compressPanel(p: PanelSummary) {
     // Peer read-through reaches the verdict as a risk overlay (news panel only;
     // undefined elsewhere). See the "Peer read-through" clause in SYSTEM_INSTRUCTION.
     ...(p.readThrough && p.readThrough.length > 0 ? { readThrough: p.readThrough } : {}),
+    // Deterministic, code-computed numbers the prompt explicitly cites: the
+    // fundamentals "Earnings" row + insider "Net Conviction" chip live in meta,
+    // and the exact Form-4 rows (value, % of stake, routine flag) live in
+    // insiderFlow. These are attached in code precisely so they're exact — don't
+    // make synth rely on the upstream panel LLM having echoed them into prose.
+    ...(p.meta && p.meta.length > 0 ? { meta: p.meta } : {}),
+    ...(p.insiderFlow && p.insiderFlow.length > 0 ? { insiderFlow: p.insiderFlow } : {}),
   };
 }
 
@@ -532,6 +551,9 @@ function buildPrompt(input: SynthInput): string {
     // Deterministic falling-knife / melt-up guard (server-computed price action).
     // See the FALLING-KNIFE / MOMENTUM GUARD section in SYSTEM_INSTRUCTION.
     priceAction: compressPriceAction(input.priceAction),
+    // Standing technical-indicator readings (RSI/MACD/Bollinger/SMA distances).
+    // See the TECHNICAL INDICATOR STATE section in SYSTEM_INSTRUCTION.
+    technicalIndicators: input.technicalIndicators ?? null,
     panelSummaries: {
       capital: compressPanel(input.panels.capital),
       technical: compressPanel(input.panels.technical),
@@ -543,6 +565,14 @@ function buildPrompt(input: SynthInput): string {
       insider: compressPanel(input.panels.insider),
     },
   };
+
+  // DEBUG: what gets fed INTO the model (the full structured payload). Toggle
+  // off by unsetting SYNTH_DEBUG. The system instruction is static (SYSTEM_
+  // INSTRUCTION above); this payload is the per-ticker input.
+  if (process.env.SYNTH_DEBUG) {
+    console.log(`\n[synth] ===== MODEL INPUT for ${input.ticker} (${input.symbol}) =====`);
+    console.log(JSON.stringify(payload, null, 2));
+  }
 
   return [
     `Synthesize a dual-sleeve verdict for ${input.ticker} (${input.symbol}).`,
@@ -667,6 +697,14 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
     schema: VERDICT_RESPONSE_SCHEMA,
     temperature: 0.3,
   });
+
+  // DEBUG: what the model GENERATED (raw, before the deterministic eligibility /
+  // falling-knife / sizing overrides below rewrite it). Compare against the
+  // MODEL INPUT log to see exactly what the LLM is responsible for producing.
+  if (process.env.SYNTH_DEBUG) {
+    console.log(`\n[synth] ===== MODEL OUTPUT for ${input.ticker} (raw, pre-override) =====`);
+    console.log(JSON.stringify(raw, null, 2));
+  }
 
   // Safety override: if the LLM ignored an eligibility gate (it does, sometimes),
   // rewrite the action to the defined-risk fallback before the picker sees it.

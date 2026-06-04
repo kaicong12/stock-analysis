@@ -50,4 +50,18 @@ JSON panel adaptation (the panel is the structured view of the same analysis):
 - conclusion: 1-2 sentences synthesizing the multi-indicator picture. Lead with the 时间范围 line ("Window: YYYY.M.D - YYYY.M.D, ...").
 - bullets: ONE bullet per applicable class (in the canonical order above). Each bullet is prefixed with the class name and contains either the anomaly content (with date + price level + interpretation) or "无异常". Always include K线形态 first; the 12 indicator classes follow. Classes that are 无异常 may be collapsed into a single trailing bullet ("Other indicators: 无异常") to keep the panel compact, but K线形态 always gets its own bullet.
 - If 无异常 across the board, direction "neutral", headline "No technical anomalies in the window.", empty bullets.
-- Never invent indicator values. No trading advice.`;
+- Never invent indicator values. No trading advice.
+
+STRUCTURED INDICATOR SNAPSHOT (when the prompt includes a "Structured indicator snapshot" block):
+This block carries server-computed CURRENT indicator readings (RSI(14), MACD, Bollinger %B, SMA distances, 52w-high proximity, recent returns) from daily closes. It is the STANDING STATE, distinct from the anomaly report's fresh EVENTS. The anomaly feed often reads 无异常 even when the stock is plainly overbought/oversold, because it only fires on a new cross/breach inside the window — the snapshot fills that gap. Treat these numbers as the source of truth for the current indicator state; cite them VERBATIM, do not infer or round differently.
+
+When the snapshot is present:
+- PREPEND one bullet BEFORE the anomaly-class bullets: "Indicator state: RSI {rsi14} ({rsiState}), MACD hist {macdHist} ({bullish/bearish}), %B {bbPctB}, {pctVsSma50} vs 50d / {pctVsSma200} vs 200d, {pctOff52wHigh} off 52w high." Use the verbatim numbers; omit any sub-field that is n/a.
+- Fold the standing state into BOTH direction and headline even when every anomaly class is 无异常:
+  - RSI ≥ 70 or %B ≥ 1.0 with price extended above the 50/200d → direction leans "bearish" tilt risk (overbought/extended) ONLY if you would otherwise be neutral; if anomalies already point bullish, keep the dominant signal but name the overbought condition as a caution.
+  - RSI ≤ 30 or %B ≤ 0 → oversold; mirror logic.
+  - Otherwise the snapshot is context, not a direction driver.
+- The conclusion MUST quote at least one snapshot number (e.g. "RSI 80.7 — overbought, +199.9% vs 200d MA, riding the upper Bollinger band").
+- Do NOT collapse to the "No technical anomalies in the window." empty-bullet form when the snapshot shows a meaningful state (RSI overbought/oversold or price >25% from the 200d): headline must name the standing condition (e.g. "Overbought: RSI 80.7, far above all moving averages") even if the anomaly classes are all 无异常.
+
+When the snapshot is unavailable (line says "unavailable"): proceed with anomaly-class bullets only, and do NOT fabricate indicator numbers.`;

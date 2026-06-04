@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { synthesizeVerdict } from "../../../lib/gemini/synth";
-import { getPriceAction } from "../../../lib/moomoo/sidecar";
+import { getPriceAction, getTechnicalIndicators } from "../../../lib/moomoo/sidecar";
 import type {
   HeldGroup,
   PanelSummary,
@@ -43,10 +43,14 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "ticker, symbol, and panels are required" }, { status: 400 });
   }
   try {
-    // Price-action breakdown signal is fetched server-side (deterministic data,
-    // not client-provided) so the falling-knife guard can't be bypassed by the
-    // client. Never throws — null degrades the guard to a no-op.
-    const priceAction = await getPriceAction(body.symbol);
+    // Price-action signal + standing technical indicators are fetched
+    // server-side (deterministic data, not client-provided) so the falling-knife
+    // guard can't be bypassed by the client and the figures are trustworthy.
+    // Neither throws — null degrades gracefully (guard no-ops / overlay ignored).
+    const [priceAction, technicalIndicators] = await Promise.all([
+      getPriceAction(body.symbol),
+      getTechnicalIndicators(body.symbol),
+    ]);
     const verdict = await synthesizeVerdict({
       ticker: body.ticker,
       symbol: body.symbol,
@@ -55,6 +59,7 @@ export async function POST(request: NextRequest) {
       heldPositions: body.heldPositions ?? [],
       heldGroups: body.heldGroups ?? [],
       priceAction,
+      technicalIndicators,
       panels: body.panels,
     });
     return Response.json({ verdict });
