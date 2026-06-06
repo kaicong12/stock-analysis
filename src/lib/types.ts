@@ -117,6 +117,24 @@ export interface PriceAction {
 // via the LLM, so the figures the panel/verdict cite are exact.
 export type RsiState = "overbought" | "oversold" | "neutral" | "n/a";
 
+// Trend-regime classification (ADX-driven). Tells the verdict whether an
+// overbought/oversold oscillator reading is actionable mean-reversion (range)
+// or a momentum trap to NOT fade (trend). A strong ticker can ride overbought
+// for weeks inside a strong_uptrend; a weak one bleeds oversold for weeks
+// inside a strong_downtrend — neither is a reversal signal on its own.
+export type TrendRegime =
+  | "strong_uptrend"
+  | "uptrend"
+  | "range"
+  | "downtrend"
+  | "strong_downtrend"
+  | "n/a";
+
+// Regular RSI/price divergence — the actual exhaustion confirmation. "bearish"
+// = price higher-high while RSI lower-high (overbought finally fading);
+// "bullish" = price lower-low while RSI higher-low (oversold downtrend turning).
+export type RsiDivergence = "bearish" | "bullish" | "none";
+
 export interface TechnicalIndicators {
   symbol: string;
   spot: number | null;
@@ -142,6 +160,11 @@ export interface TechnicalIndicators {
   pctOff52wHigh: number | null;      // % off the 52-week high (<= 0)
   ret5d: number | null;              // 5-trading-day % return
   ret20d: number | null;             // 20-trading-day % return
+  adx14: number | null;              // Wilder ADX(14); >=20 trending, >=35 strong
+  plusDi: number | null;             // +DI at the latest bar (up-pressure)
+  minusDi: number | null;            // -DI at the latest bar (down-pressure)
+  regime: TrendRegime;               // ADX+DI+SMA-stack trend classification
+  rsiDivergence: RsiDivergence;      // regular RSI/price divergence (exhaustion tell)
 }
 
 // Fundamentals from yfinance (via python sidecar). All numeric fields are

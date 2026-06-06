@@ -1126,6 +1126,172 @@ def _bbands(closes: list[float], window: int = 20, k: float = 2.0):
     return upper, mid, lower, pct_b
 
 
+def _adx(highs: list[float], lows: list[float], closes: list[float], period: int = 14):
+    """Wilder's ADX(period) plus the latest +DI / -DI. Returns (adx, plus_di,
+    minus_di) at the most recent bar, or (None, None, None) if there aren't
+    enough bars. ADX measures TREND STRENGTH irrespective of direction; +DI/-DI
+    carry the direction. The verdict's regime gate keys off these: high ADX = a
+    trend you should NOT fade on an oscillator; low ADX = a range where
+    overbought/oversold mean-reversion actually works."""
+    n = len(closes)
+    if n < 2 * period + 1:
+        return None, None, None
+    trs: list[float] = []
+    plus_dm: list[float] = []
+    minus_dm: list[float] = []
+    for i in range(1, n):
+        up = highs[i] - highs[i - 1]
+        down = lows[i - 1] - lows[i]
+        plus_dm.append(up if (up > down and up > 0) else 0.0)
+        minus_dm.append(down if (down > up and down > 0) else 0.0)
+        trs.append(max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        ))
+    # Wilder-smoothed TR / +DM / -DM, then a DX series, then Wilder-smoothed ADX.
+    atr = sum(trs[:period])
+    sp_dm = sum(plus_dm[:period])
+    sm_dm = sum(minus_dm[:period])
+    dxs: list[float] = []
+    plus_di = minus_di = 0.0
+    for i in range(period, len(trs)):
+        atr = atr - atr / period + trs[i]
+        sp_dm = sp_dm - sp_dm / period + plus_dm[i]
+        sm_dm = sm_dm - sm_dm / period + minus_dm[i]
+        if atr == 0:
+            continue
+        plus_di = 100 * sp_dm / atr
+        minus_di = 100 * sm_dm / atr
+        denom = plus_di + minus_di
+        dxs.append(100 * abs(plus_di - minus_di) / denom if denom else 0.0)
+    if len(dxs) < period:
+        return None, None, None
+    adx = sum(dxs[:period]) / period
+    for i in range(period, len(dxs)):
+        adx = (adx * (period - 1) + dxs[i]) / period
+    return adx, plus_di, minus_di
+
+
+def _rsi_series(closes: list[float], period: int = 14) -> list[float | None]:
+    """Wilder RSI at every bar (None for the leading bars without enough data).
+    Index-aligned to `closes` so divergence detection can read RSI at a price
+    pivot's bar index."""
+    n = len(closes)
+    out: list[float | None] = [None] * n
+    if n < period + 1:
+        return out
+    gains: list[float] = []
+    losses: list[float] = []
+    for i in range(1, n):
+        d = closes[i] - closes[i - 1]
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+
+    def rsi_from(ag: float, al: float) -> float:
+        if al == 0:
+            return 100.0
+        return 100 - 100 / (1 + ag / al)
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    out[period] = rsi_from(avg_gain, avg_loss)
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        out[i + 1] = rsi_from(avg_gain, avg_loss)
+    return out
+
+
+def _pivot_indices(values: list[float | None], left: int, right: int, kind: str) -> list[int]:
+    """Indices of local price extrema (swing highs/lows) with `left` bars lower
+    on the left and `right` lower on the right. A bar needs `right` confirming
+    bars after it, so the newest detectable pivot is `right` bars old."""
+    out: list[int] = []
+    n = len(values)
+    for i in range(left, n - right):
+        v = values[i]
+        if v is None:
+            continue
+        window = values[i - left:i + right + 1]
+        if any(w is None for w in window):
+            continue
+        if kind == "high" and v >= max(window) and v > min(window):
+            out.append(i)
+        elif kind == "low" and v <= min(window) and v < max(window):
+            out.append(i)
+    return out
+
+
+def _rsi_divergence(closes: list[float], rsi: list[float | None],
+                    lookback: int = 60, left: int = 3, right: int = 3) -> str:
+    """Classic regular RSI divergence over the last `lookback` bars.
+    - "bearish": price prints a HIGHER swing high while RSI prints a LOWER high
+      (momentum fading under a rising price — the real 'overbought is now
+      exhausting' tell, vs. a bare overbought reading that means nothing).
+    - "bullish": price prints a LOWER swing low while RSI prints a HIGHER low
+      (selling pressure fading under a falling price — the mirror that flags an
+      oversold DOWNTREND finally turning, vs. an oversold name that just keeps
+      bleeding).
+    - "none": no qualifying two-pivot pattern. Requires the most recent pivot to
+      be within `lookback` bars and the two pivots ≥ 5 bars apart."""
+    n = len(closes)
+    if n < lookback // 2:
+        return "none"
+    start = max(0, n - lookback)
+
+    highs = [i for i in _pivot_indices([c for c in closes], left, right, "high") if i >= start]
+    if len(highs) >= 2:
+        a, b = highs[-2], highs[-1]
+        if b - a >= 5 and rsi[a] is not None and rsi[b] is not None:
+            if closes[b] > closes[a] and rsi[b] < rsi[a]:
+                return "bearish"
+
+    lows = [i for i in _pivot_indices([c for c in closes], left, right, "low") if i >= start]
+    if len(lows) >= 2:
+        a, b = lows[-2], lows[-1]
+        if b - a >= 5 and rsi[a] is not None and rsi[b] is not None:
+            if closes[b] < closes[a] and rsi[b] > rsi[a]:
+                return "bullish"
+
+    return "none"
+
+
+def _regime(adx: float | None, plus_di: float | None, minus_di: float | None,
+            spot: float, sma50: float | None, sma200: float | None) -> str:
+    """Classify the trend regime so the verdict knows whether an overbought/
+    oversold oscillator reading is actionable (range) or a trap to fade (trend).
+    ADX sets strength; +DI/-DI and the SMA stack set direction.
+    Returns: strong_uptrend | uptrend | range | downtrend | strong_downtrend | n/a."""
+    if adx is None:
+        return "n/a"
+    # Direction: lean on DI cross, confirm with the 50/200 SMA stack.
+    up_votes = 0
+    down_votes = 0
+    if plus_di is not None and minus_di is not None:
+        if plus_di > minus_di:
+            up_votes += 1
+        elif minus_di > plus_di:
+            down_votes += 1
+    if sma50 is not None:
+        if spot > sma50:
+            up_votes += 1
+        else:
+            down_votes += 1
+    if sma200 is not None:
+        if spot > sma200:
+            up_votes += 1
+        else:
+            down_votes += 1
+    up = up_votes >= down_votes
+    if adx < 20:
+        return "range"
+    strong = adx >= 35
+    if up:
+        return "strong_uptrend" if strong else "uptrend"
+    return "strong_downtrend" if strong else "downtrend"
+
+
 @app.get("/technical/indicators")
 def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
     """Current technical-indicator readings (RSI/MACD/Bollinger/SMA distances)
@@ -1146,11 +1312,15 @@ def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
         "pctVsSma20": None, "pctVsSma50": None, "pctVsSma200": None,
         "high52w": None, "low52w": None, "pctOff52wHigh": None,
         "ret5d": None, "ret20d": None,
+        "adx14": None, "plusDi": None, "minusDi": None,
+        "regime": "n/a", "rsiDivergence": "none",
     }
     if len(bars) < 15:
         return base
 
     closes = [b["close"] for b in bars]
+    highs = [b["high"] for b in bars]
+    lows = [b["low"] for b in bars]
     spot = closes[-1]
 
     def pct_vs(ma):
@@ -1160,6 +1330,9 @@ def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
     macd_v, sig_v, hist = _macd(closes)
     bb_u, bb_m, bb_l, bb_pctb = _bbands(closes, 20, 2.0)
     sma20, sma50, sma200 = _sma(closes, 20), _sma(closes, 50), _sma(closes, 200)
+    adx, plus_di, minus_di = _adx(highs, lows, closes, 14)
+    regime = _regime(adx, plus_di, minus_di, spot, sma50, sma200)
+    divergence = _rsi_divergence(closes, _rsi_series(closes, 14))
     hi = max(closes)
     lo = min(closes)
     rsi_state = (
@@ -1184,6 +1357,8 @@ def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
         "pctOff52wHigh": rnd((spot - hi) / hi * 100, 1) if hi else None,
         "ret5d": rnd((spot / closes[-6] - 1) * 100, 1) if len(closes) >= 6 else None,
         "ret20d": rnd((spot / closes[-21] - 1) * 100, 1) if len(closes) >= 21 else None,
+        "adx14": rnd(adx, 1), "plusDi": rnd(plus_di, 1), "minusDi": rnd(minus_di, 1),
+        "regime": regime, "rsiDivergence": divergence,
     }
 
 
