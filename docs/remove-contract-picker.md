@@ -1,0 +1,1 @@
+Remove contract picker
