@@ -7,6 +7,7 @@ import type {
   PeersResult,
   PriceAction,
   SnapshotResult,
+  TechnicalIndicators,
   VolSummary,
 } from "../types";
 
@@ -150,6 +151,20 @@ export async function getVolSummary(
 export async function getPriceAction(symbol: string): Promise<PriceAction | null> {
   try {
     return await callSidecar<PriceAction>("/price-action", { symbol });
+  } catch {
+    return null;
+  }
+}
+
+// Standing technical-indicator readings (RSI/MACD/Bollinger/SMA distances) from
+// the sidecar's /technical/indicators. Complements the technical anomaly feed:
+// the anomaly report only carries fresh EVENTS, this carries the current STATE
+// (e.g. RSI 80 = overbought even with no new cross). Returns null on any sidecar
+// failure — the technical panel still runs on the anomaly text alone. The
+// backend already emits camelCase, so this is a thin typed pass-through.
+export async function getTechnicalIndicators(symbol: string): Promise<TechnicalIndicators | null> {
+  try {
+    return await callSidecar<TechnicalIndicators>("/technical/indicators", { symbol });
   } catch {
     return null;
   }

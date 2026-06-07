@@ -74,6 +74,99 @@ def _call(method_name: str, symbol: str, time_range: int, dims: list[str] | None
     }
 
 
+# ---- Anomaly dimension handling ---------------------------------------------
+# moomoo currently returns err_code -12301 (empty payload) for several anomaly
+# dimensions on EVERY symbol/market we tested. Because a single request that
+# bundles multiple dimensions fails entirely if ANY one of them errors, a full
+# scan (analysis_dimensions=None -> "all") always comes back -12301 and the
+# panels render blank. Workaround: query only the dimensions that return data
+# today, one at a time, and merge the successful ones. See SUPPORT_TICKET.md.
+#
+# To re-enable a dimension once moomoo fixes it, just add it back to the list;
+# _merge_dimensions already skips any dimension that errors at runtime, so a
+# still-broken entry degrades gracefully instead of blanking the whole panel.
+FINANCIAL_DIMENSIONS: list[tuple[str, str]] = [
+    ("funds_distribution", "Funds Distribution (资金分布)"),
+    ("funds_broker", "Buy/Sell Brokers (买卖经纪商)"),
+    # Broken as of last check (-12301): funds_flow, short_sell_number,
+    # short_sell_ratio, short_sell_number_and_ratio.
+]
+DERIVATIVE_DIMENSIONS: list[tuple[str, str]] = [
+    ("option_unusual", "Unusual Options Trades (期权大单)"),
+    # Broken as of last check (-12301): option_volatility, option_volume_price,
+    # option_sentiment, option_comprehensive. warrant_ratio /
+    # warrant_price_distribution are HK-only CBBC concepts (also -12301 on HK)
+    # and irrelevant to US options strategy, so they are intentionally omitted.
+]
+
+
+def _dim_succeeded(err_code) -> bool:
+    """err_code semantics from the moomoo skill-wrap anomaly API:
+    0 = success with content, 1 = success/no-anomaly, <0 = error (e.g. -12301).
+    """
+    return isinstance(err_code, int) and err_code >= 0
+
+
+def _merge_dimensions(method_name: str, symbol: str, time_range: int,
+                      language_id: int, dimensions: list[tuple[str, str]]) -> dict:
+    """Call each anomaly dimension individually and merge the ones that return
+    successfully. Mirrors the envelope shape of _call so the Next.js sidecar
+    (RawAnomalyResponse) keeps working unchanged: data.content holds the merged
+    text, plus a per_dimension diagnostic map for debugging which dims errored.
+    """
+    sections: list[str] = []
+    per_dimension: dict[str, dict] = {}
+    time_range_label = ""
+    any_succeeded = False
+
+    with quote_ctx() as ctx:
+        method = getattr(ctx, method_name)
+        for dim, label in dimensions:
+            ret, data = method(symbol, time_range=time_range,
+                               language_id=language_id, analysis_dimensions=[dim])
+            if ret != RET_OK:
+                per_dimension[dim] = {"err_code": None, "retMsg": str(data)[:200]}
+                continue
+            rec = _normalize(data)
+            if isinstance(rec, list):
+                rec = rec[0] if rec else {}
+            if not isinstance(rec, dict):
+                rec = {}
+            err_code = rec.get("err_code")
+            content = (rec.get("content") or "").strip()
+            per_dimension[dim] = {"err_code": err_code, "retMsg": rec.get("retMsg")}
+            if not _dim_succeeded(err_code):
+                continue
+            any_succeeded = True
+            time_range_label = time_range_label or (rec.get("time_range") or "")
+            if content:
+                sections.append(f"{label}:\n{content}")
+
+    if sections:
+        err_code, ret_msg = 0, "success"
+    elif any_succeeded:
+        err_code, ret_msg = 1, "no anomaly"
+    else:
+        # Every queried dimension errored — surface it so the panel can tell the
+        # difference between "no anomaly" and "data unavailable".
+        err_code, ret_msg = -12301, "all requested dimensions unavailable"
+
+    return {
+        "method": method_name,
+        "symbol": symbol,
+        "time_range": time_range,
+        "language_id": language_id,
+        "dimensions": [d for d, _ in dimensions],
+        "data": {
+            "err_code": err_code,
+            "retMsg": ret_msg,
+            "time_range": time_range_label,
+            "content": "\n\n".join(sections),
+            "per_dimension": per_dimension,
+        },
+    }
+
+
 @app.get("/health")
 def health() -> dict:
     try:
@@ -91,7 +184,8 @@ def capital_anomaly(
     language_id: int = 2,
     dimensions: list[str] | None = Query(default=None),
 ):
-    return _call("get_financial_unusual", symbol, time_range, _split(dimensions), language_id)
+    dims = [(d, d) for d in _split(dimensions)] if _split(dimensions) else FINANCIAL_DIMENSIONS
+    return _merge_dimensions("get_financial_unusual", symbol, time_range, language_id, dims)
 
 
 @app.get("/anomaly/technical")
@@ -112,7 +206,8 @@ def derivatives_anomaly(
     language_id: int = 2,
     dimensions: list[str] | None = Query(default=None),
 ):
-    return _call("get_derivative_unusual", symbol, time_range, _split(dimensions), language_id)
+    dims = [(d, d) for d in _split(dimensions)] if _split(dimensions) else DERIVATIVE_DIMENSIONS
+    return _merge_dimensions("get_derivative_unusual", symbol, time_range, language_id, dims)
 
 
 # ---- Options ----------------------------------------------------------------
@@ -960,6 +1055,310 @@ def price_action(symbol: str = Query(..., description="e.g. US.AAPL")):
         "todayChangePct": today_chg, "gapPct": gap_pct, "volRatio": vol_ratio,
         "hv30": hv30, "hv60": hv60, "hvExpansion": hv_expansion,
         "barsUsed": len(bars),
+    }
+
+
+# ---- Technical indicator VALUES (standing state, not anomaly events) ---------
+# get_technical_unusual only fires on fresh EVENTS inside the window (a cross, a
+# threshold breach). It is blind to a STANDING state like "RSI has been > 70 for
+# weeks". This endpoint computes the current indicator readings directly from the
+# cached daily OHLCV so the technical panel can show "currently overbought" even
+# when no fresh anomaly tripped. Deterministic — never routed through the LLM.
+
+def _ema(values: list[float], span: int) -> list[float]:
+    """Standard EMA, seeded with the first value. Returns same-length series."""
+    if not values:
+        return []
+    k = 2 / (span + 1)
+    e = values[0]
+    out = [e]
+    for v in values[1:]:
+        e = v * k + e * (1 - k)
+        out.append(e)
+    return out
+
+
+def _rsi(closes: list[float], period: int = 14) -> float | None:
+    """Wilder's RSI. None if fewer than period+1 closes."""
+    if len(closes) < period + 1:
+        return None
+    gains: list[float] = []
+    losses: list[float] = []
+    for i in range(1, len(closes)):
+        d = closes[i] - closes[i - 1]
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - 100 / (1 + rs)
+
+
+def _macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9):
+    """Returns (macd_line, signal_line, histogram) at the latest bar, or
+    (None, None, None) if there aren't enough bars for the slow EMA + signal."""
+    if len(closes) < slow + signal:
+        return None, None, None
+    macd_series = [f - s for f, s in zip(_ema(closes, fast), _ema(closes, slow))]
+    sig_series = _ema(macd_series, signal)
+    macd_v = macd_series[-1]
+    sig_v = sig_series[-1]
+    return macd_v, sig_v, macd_v - sig_v
+
+
+def _bbands(closes: list[float], window: int = 20, k: float = 2.0):
+    """Bollinger bands (upper, mid, lower, %B) at the latest bar. %B = where spot
+    sits across the band: >1 above upper, <0 below lower. Population stddev."""
+    if len(closes) < window:
+        return None, None, None, None
+    w = closes[-window:]
+    mid = sum(w) / window
+    var = sum((x - mid) ** 2 for x in w) / window
+    sd = math.sqrt(var)
+    upper = mid + k * sd
+    lower = mid - k * sd
+    pct_b = ((closes[-1] - lower) / (upper - lower)) if upper > lower else None
+    return upper, mid, lower, pct_b
+
+
+def _adx(highs: list[float], lows: list[float], closes: list[float], period: int = 14):
+    """Wilder's ADX(period) plus the latest +DI / -DI. Returns (adx, plus_di,
+    minus_di) at the most recent bar, or (None, None, None) if there aren't
+    enough bars. ADX measures TREND STRENGTH irrespective of direction; +DI/-DI
+    carry the direction. The verdict's regime gate keys off these: high ADX = a
+    trend you should NOT fade on an oscillator; low ADX = a range where
+    overbought/oversold mean-reversion actually works."""
+    n = len(closes)
+    if n < 2 * period + 1:
+        return None, None, None
+    trs: list[float] = []
+    plus_dm: list[float] = []
+    minus_dm: list[float] = []
+    for i in range(1, n):
+        up = highs[i] - highs[i - 1]
+        down = lows[i - 1] - lows[i]
+        plus_dm.append(up if (up > down and up > 0) else 0.0)
+        minus_dm.append(down if (down > up and down > 0) else 0.0)
+        trs.append(max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        ))
+    # Wilder-smoothed TR / +DM / -DM, then a DX series, then Wilder-smoothed ADX.
+    atr = sum(trs[:period])
+    sp_dm = sum(plus_dm[:period])
+    sm_dm = sum(minus_dm[:period])
+    dxs: list[float] = []
+    plus_di = minus_di = 0.0
+    for i in range(period, len(trs)):
+        atr = atr - atr / period + trs[i]
+        sp_dm = sp_dm - sp_dm / period + plus_dm[i]
+        sm_dm = sm_dm - sm_dm / period + minus_dm[i]
+        if atr == 0:
+            continue
+        plus_di = 100 * sp_dm / atr
+        minus_di = 100 * sm_dm / atr
+        denom = plus_di + minus_di
+        dxs.append(100 * abs(plus_di - minus_di) / denom if denom else 0.0)
+    if len(dxs) < period:
+        return None, None, None
+    adx = sum(dxs[:period]) / period
+    for i in range(period, len(dxs)):
+        adx = (adx * (period - 1) + dxs[i]) / period
+    return adx, plus_di, minus_di
+
+
+def _rsi_series(closes: list[float], period: int = 14) -> list[float | None]:
+    """Wilder RSI at every bar (None for the leading bars without enough data).
+    Index-aligned to `closes` so divergence detection can read RSI at a price
+    pivot's bar index."""
+    n = len(closes)
+    out: list[float | None] = [None] * n
+    if n < period + 1:
+        return out
+    gains: list[float] = []
+    losses: list[float] = []
+    for i in range(1, n):
+        d = closes[i] - closes[i - 1]
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+
+    def rsi_from(ag: float, al: float) -> float:
+        if al == 0:
+            return 100.0
+        return 100 - 100 / (1 + ag / al)
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    out[period] = rsi_from(avg_gain, avg_loss)
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        out[i + 1] = rsi_from(avg_gain, avg_loss)
+    return out
+
+
+def _pivot_indices(values: list[float | None], left: int, right: int, kind: str) -> list[int]:
+    """Indices of local price extrema (swing highs/lows) with `left` bars lower
+    on the left and `right` lower on the right. A bar needs `right` confirming
+    bars after it, so the newest detectable pivot is `right` bars old."""
+    out: list[int] = []
+    n = len(values)
+    for i in range(left, n - right):
+        v = values[i]
+        if v is None:
+            continue
+        window = values[i - left:i + right + 1]
+        if any(w is None for w in window):
+            continue
+        if kind == "high" and v >= max(window) and v > min(window):
+            out.append(i)
+        elif kind == "low" and v <= min(window) and v < max(window):
+            out.append(i)
+    return out
+
+
+def _rsi_divergence(closes: list[float], rsi: list[float | None],
+                    lookback: int = 60, left: int = 3, right: int = 3) -> str:
+    """Classic regular RSI divergence over the last `lookback` bars.
+    - "bearish": price prints a HIGHER swing high while RSI prints a LOWER high
+      (momentum fading under a rising price — the real 'overbought is now
+      exhausting' tell, vs. a bare overbought reading that means nothing).
+    - "bullish": price prints a LOWER swing low while RSI prints a HIGHER low
+      (selling pressure fading under a falling price — the mirror that flags an
+      oversold DOWNTREND finally turning, vs. an oversold name that just keeps
+      bleeding).
+    - "none": no qualifying two-pivot pattern. Requires the most recent pivot to
+      be within `lookback` bars and the two pivots ≥ 5 bars apart."""
+    n = len(closes)
+    if n < lookback // 2:
+        return "none"
+    start = max(0, n - lookback)
+
+    highs = [i for i in _pivot_indices([c for c in closes], left, right, "high") if i >= start]
+    if len(highs) >= 2:
+        a, b = highs[-2], highs[-1]
+        if b - a >= 5 and rsi[a] is not None and rsi[b] is not None:
+            if closes[b] > closes[a] and rsi[b] < rsi[a]:
+                return "bearish"
+
+    lows = [i for i in _pivot_indices([c for c in closes], left, right, "low") if i >= start]
+    if len(lows) >= 2:
+        a, b = lows[-2], lows[-1]
+        if b - a >= 5 and rsi[a] is not None and rsi[b] is not None:
+            if closes[b] < closes[a] and rsi[b] > rsi[a]:
+                return "bullish"
+
+    return "none"
+
+
+def _regime(adx: float | None, plus_di: float | None, minus_di: float | None,
+            spot: float, sma50: float | None, sma200: float | None) -> str:
+    """Classify the trend regime so the verdict knows whether an overbought/
+    oversold oscillator reading is actionable (range) or a trap to fade (trend).
+    ADX sets strength; +DI/-DI and the SMA stack set direction.
+    Returns: strong_uptrend | uptrend | range | downtrend | strong_downtrend | n/a."""
+    if adx is None:
+        return "n/a"
+    # Direction: lean on DI cross, confirm with the 50/200 SMA stack.
+    up_votes = 0
+    down_votes = 0
+    if plus_di is not None and minus_di is not None:
+        if plus_di > minus_di:
+            up_votes += 1
+        elif minus_di > plus_di:
+            down_votes += 1
+    if sma50 is not None:
+        if spot > sma50:
+            up_votes += 1
+        else:
+            down_votes += 1
+    if sma200 is not None:
+        if spot > sma200:
+            up_votes += 1
+        else:
+            down_votes += 1
+    up = up_votes >= down_votes
+    if adx < 20:
+        return "range"
+    strong = adx >= 35
+    if up:
+        return "strong_uptrend" if strong else "uptrend"
+    return "strong_downtrend" if strong else "downtrend"
+
+
+@app.get("/technical/indicators")
+def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
+    """Current technical-indicator readings (RSI/MACD/Bollinger/SMA distances)
+    from cached daily OHLCV. Complements /anomaly/technical: that one reports
+    fresh anomaly EVENTS, this one reports the standing STATE. Returns 200 with
+    nulls when data is thin (never raises — a missing indicator must not break
+    the panel)."""
+    yf_ticker = _to_yf_ticker(symbol)
+    bars = _fetch_daily_ohlcv(yf_ticker, n_bars=260)
+
+    base = {
+        "symbol": symbol, "yfTicker": yf_ticker, "spot": None, "asOf": None,
+        "barsUsed": len(bars),
+        "rsi14": None, "rsiState": "n/a",
+        "macd": None, "macdSignal": None, "macdHist": None,
+        "bbUpper": None, "bbMid": None, "bbLower": None, "bbPctB": None,
+        "sma20": None, "sma50": None, "sma200": None,
+        "pctVsSma20": None, "pctVsSma50": None, "pctVsSma200": None,
+        "high52w": None, "low52w": None, "pctOff52wHigh": None,
+        "ret5d": None, "ret20d": None,
+        "adx14": None, "plusDi": None, "minusDi": None,
+        "regime": "n/a", "rsiDivergence": "none",
+    }
+    if len(bars) < 15:
+        return base
+
+    closes = [b["close"] for b in bars]
+    highs = [b["high"] for b in bars]
+    lows = [b["low"] for b in bars]
+    spot = closes[-1]
+
+    def pct_vs(ma):
+        return ((spot - ma) / ma * 100) if ma else None
+
+    rsi = _rsi(closes, 14)
+    macd_v, sig_v, hist = _macd(closes)
+    bb_u, bb_m, bb_l, bb_pctb = _bbands(closes, 20, 2.0)
+    sma20, sma50, sma200 = _sma(closes, 20), _sma(closes, 50), _sma(closes, 200)
+    adx, plus_di, minus_di = _adx(highs, lows, closes, 14)
+    regime = _regime(adx, plus_di, minus_di, spot, sma50, sma200)
+    divergence = _rsi_divergence(closes, _rsi_series(closes, 14))
+    hi = max(closes)
+    lo = min(closes)
+    rsi_state = (
+        "overbought" if (rsi is not None and rsi >= 70)
+        else "oversold" if (rsi is not None and rsi <= 30)
+        else "neutral" if rsi is not None else "n/a"
+    )
+
+    def rnd(x, d=2):
+        return None if x is None else round(x, d)
+
+    return {
+        "symbol": symbol, "yfTicker": yf_ticker, "spot": rnd(spot), "asOf": bars[-1]["date"],
+        "barsUsed": len(bars),
+        "rsi14": rnd(rsi, 1), "rsiState": rsi_state,
+        "macd": rnd(macd_v), "macdSignal": rnd(sig_v), "macdHist": rnd(hist),
+        "bbUpper": rnd(bb_u), "bbMid": rnd(bb_m), "bbLower": rnd(bb_l), "bbPctB": rnd(bb_pctb, 3),
+        "sma20": rnd(sma20), "sma50": rnd(sma50), "sma200": rnd(sma200),
+        "pctVsSma20": rnd(pct_vs(sma20), 1), "pctVsSma50": rnd(pct_vs(sma50), 1),
+        "pctVsSma200": rnd(pct_vs(sma200), 1),
+        "high52w": rnd(hi), "low52w": rnd(lo),
+        "pctOff52wHigh": rnd((spot - hi) / hi * 100, 1) if hi else None,
+        "ret5d": rnd((spot / closes[-6] - 1) * 100, 1) if len(closes) >= 6 else None,
+        "ret20d": rnd((spot / closes[-21] - 1) * 100, 1) if len(closes) >= 21 else None,
+        "adx14": rnd(adx, 1), "plusDi": rnd(plus_di, 1), "minusDi": rnd(minus_di, 1),
+        "regime": regime, "rsiDivergence": divergence,
     }
 
 
