@@ -13,8 +13,11 @@ const SCHEMA = baseSchema();
 // model to cite these numbers verbatim rather than inferring them from the
 // anomaly text. Mirrors the derivatives panel's volBlock.
 function indicatorBlock(t: TechnicalIndicators): string {
-  const n = (x: number | null, d = 2): string => (x === null ? "n/a" : x.toFixed(d));
-  const pct = (x: number | null): string => (x === null ? "n/a" : `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`);
+  // == null catches BOTH null and undefined: a stale sidecar (pre-regime build)
+  // omits adx14/plusDi/minusDi entirely, so they arrive undefined — `=== null`
+  // would let undefined through into .toFixed() and crash the panel.
+  const n = (x: number | null | undefined, d = 2): string => (x == null ? "n/a" : x.toFixed(d));
+  const pct = (x: number | null | undefined): string => (x == null ? "n/a" : `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`);
   return [
     `Structured indicator snapshot (server-computed; cite VERBATIM, do not infer):`,
     `  as of ${t.asOf ?? "n/a"}, spot $${n(t.spot)} (${t.barsUsed} bars)`,
@@ -24,6 +27,7 @@ function indicatorBlock(t: TechnicalIndicators): string {
     `  vs SMA20 ${pct(t.pctVsSma20)}, vs SMA50 ${pct(t.pctVsSma50)}, vs SMA200 ${pct(t.pctVsSma200)}`,
     `  52w high $${n(t.high52w)} (${pct(t.pctOff52wHigh)} off), 52w low $${n(t.low52w)}`,
     `  return 5d ${pct(t.ret5d)}, 20d ${pct(t.ret20d)}`,
+    `  regime: ${t.regime ?? "n/a"} (ADX14 ${n(t.adx14, 1)}, +DI ${n(t.plusDi, 1)} / -DI ${n(t.minusDi, 1)}), RSI divergence: ${t.rsiDivergence ?? "none"}`,
   ].join("\n");
 }
 

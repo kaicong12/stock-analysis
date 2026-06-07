@@ -63,5 +63,9 @@ When the snapshot is present:
   - Otherwise the snapshot is context, not a direction driver.
 - The conclusion MUST quote at least one snapshot number (e.g. "RSI 80.7 — overbought, +199.9% vs 200d MA, riding the upper Bollinger band").
 - Do NOT collapse to the "No technical anomalies in the window." empty-bullet form when the snapshot shows a meaningful state (RSI overbought/oversold or price >25% from the 200d): headline must name the standing condition (e.g. "Overbought: RSI 80.7, far above all moving averages") even if the anomaly classes are all 无异常.
+- REGIME-QUALIFY any overbought/oversold call. The snapshot carries regime (strong_uptrend/uptrend/range/downtrend/strong_downtrend from ADX14 + DI), and rsiDivergence (bearish/bullish/none). Overbought/oversold is a MOMENTUM reading, not a reversal — a strong ticker rides overbought for weeks in an uptrend, a weak one bleeds oversold for weeks in a downtrend. So:
+  - In a trending regime (ADX14 ≥ 20) WITHOUT a confirming rsiDivergence, an overbought/oversold reading is trend CONTINUATION; describe it that way ("RSI 80.7 overbought but regime strong_uptrend, ADX 31, no bearish divergence — momentum, not exhaustion") and do NOT flip direction on it.
+  - Only call a reversal/exhaustion risk when EITHER regime is "range" (ADX14 < 20, mean-reversion works) OR rsiDivergence confirms (bearish at a high / bullish at a low). When divergence is present, name it explicitly — it is the actual exhaustion tell.
+  - Always include regime + ADX14 + rsiDivergence in the "Indicator state" bullet.
 
 When the snapshot is unavailable (line says "unavailable"): proceed with anomaly-class bullets only, and do NOT fabricate indicator numbers.`;
