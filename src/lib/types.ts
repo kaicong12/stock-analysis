@@ -30,6 +30,33 @@ export interface DigestResult {
   items: NewsItem[];
 }
 
+// Morningstar research report (OpenD get_research_morningstar_report), the News
+// Flow panel's self-signal. Flattened from the SDK's nested {context,...} shape
+// by sidecar.getMorningstar — text fields are plain strings here. `available` is
+// false when OpenD has no report for the code (unsupported asset, rate limit, or
+// SDK too old); the panel then degrades to "n/a".
+export interface MorningstarReport {
+  symbol: string;
+  available: boolean;
+  starRating: number | null;          // 1-5; 4-5 undervalued, 3 fair, 1-2 overvalued
+  ratingType: number | null;          // 0 unknown, 1 quantitative, 2 qualitative
+  fairValue: number | null;
+  fairValueNote: string;
+  economicMoatLabel: string | null;   // "Wide" | "Narrow" | "None"
+  uncertaintyLabel: string | null;    // "Low" | "Medium" | "High" | "Very High" | "Extreme"
+  financialHealthLabel: string | null;
+  capitalAllocationLabel: string | null;
+  bullSay: string[];
+  bearSay: string[];
+  analystNoteTitle: string;
+  analystNote: string;
+  investmentThesis: string;
+  valuationNote: string;
+  starUpdateTimeStr: string | null;
+  analystReportUpdateTimeStr: string | null;
+  pdfUrl: string | null;
+}
+
 export interface CommentItem {
   id: string;
   title?: string;
@@ -540,12 +567,12 @@ export interface ContractPick {
 export interface SleeveVerdict<A extends string> {
   action: A;
   direction: SleeveDirection;
+  confidence: number;          // conviction for this sleeve (0-100), assessed on its own time horizon
   adjustment: PositionAdjustment;
   contractPick?: ContractPick;  // derivatives sleeve only, only on new entries
 }
 
 export interface Verdict {
-  confidence: number;          // overall conviction in the directional read (0-100)
   rationale: string;           // 3-5 sentences, shared across both sleeves
   riskFactor: string;          // single biggest invalidator
   stock: SleeveVerdict<StockAction>;

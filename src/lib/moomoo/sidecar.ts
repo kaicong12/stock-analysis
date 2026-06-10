@@ -4,6 +4,7 @@ import type {
   AnomalyResult,
   FundamentalsData,
   FundamentalsResult,
+  MorningstarReport,
   PeersResult,
   PriceAction,
   SnapshotResult,
@@ -167,6 +168,99 @@ export async function getTechnicalIndicators(symbol: string): Promise<TechnicalI
     return await callSidecar<TechnicalIndicators>("/technical/indicators", { symbol });
   } catch {
     return null;
+  }
+}
+
+// Raw sidecar shape: the SDK's nested {context, update_time, update_time_str}
+// objects are preserved by /research/morningstar; we flatten .context here.
+interface RawMorningstarText {
+  context?: string;
+}
+interface RawMorningstarResponse {
+  symbol: string;
+  available: boolean;
+  error?: string;
+  report?: {
+    star_rating?: number | null;
+    rating_type?: number | null;
+    fair_value?: number | null;
+    fair_value_content?: RawMorningstarText | null;
+    economic_moat_label?: string | null;
+    uncertainty_label?: string | null;
+    financial_health_label?: string | null;
+    capital_allocation_label?: string | null;
+    bull_say?: (RawMorningstarText | null)[] | null;
+    bear_say?: (RawMorningstarText | null)[] | null;
+    analyst_note_title?: RawMorningstarText | null;
+    analyst_note_content?: RawMorningstarText | null;
+    investment_thesis_content?: RawMorningstarText | null;
+    valuation_content?: RawMorningstarText | null;
+    star_update_time_str?: string | null;
+    analyst_report_update_time_str?: string | null;
+    pdf_url?: string | null;
+  } | null;
+}
+
+function msText(v: RawMorningstarText | null | undefined): string {
+  return (v?.context ?? "").trim();
+}
+function msTextList(v: (RawMorningstarText | null)[] | null | undefined): string[] {
+  return (v ?? []).map(msText).filter(Boolean);
+}
+
+// Morningstar research report via the sidecar (OpenD). The News Flow panel's
+// self-signal — fair value, moat, uncertainty, bull/bear, analyst note. Returns
+// an unavailable report (never throws) so the panel degrades to "n/a" + the
+// peer read-through still renders.
+export async function getMorningstar(symbol: string): Promise<MorningstarReport> {
+  const unavailable: MorningstarReport = {
+    symbol,
+    available: false,
+    starRating: null,
+    ratingType: null,
+    fairValue: null,
+    fairValueNote: "",
+    economicMoatLabel: null,
+    uncertaintyLabel: null,
+    financialHealthLabel: null,
+    capitalAllocationLabel: null,
+    bullSay: [],
+    bearSay: [],
+    analystNoteTitle: "",
+    analystNote: "",
+    investmentThesis: "",
+    valuationNote: "",
+    starUpdateTimeStr: null,
+    analystReportUpdateTimeStr: null,
+    pdfUrl: null,
+  };
+  try {
+    const r = await callSidecar<RawMorningstarResponse>("/research/morningstar", { symbol });
+    const rep = r.report;
+    if (!r.available || !rep) return unavailable;
+    return {
+      symbol: r.symbol ?? symbol,
+      available: true,
+      starRating: rep.star_rating ?? null,
+      ratingType: rep.rating_type ?? null,
+      fairValue: rep.fair_value ?? null,
+      fairValueNote: msText(rep.fair_value_content),
+      economicMoatLabel: rep.economic_moat_label ?? null,
+      uncertaintyLabel: rep.uncertainty_label ?? null,
+      financialHealthLabel: rep.financial_health_label ?? null,
+      capitalAllocationLabel: rep.capital_allocation_label ?? null,
+      bullSay: msTextList(rep.bull_say),
+      bearSay: msTextList(rep.bear_say),
+      analystNoteTitle: msText(rep.analyst_note_title),
+      analystNote: msText(rep.analyst_note_content),
+      investmentThesis: msText(rep.investment_thesis_content),
+      valuationNote: msText(rep.valuation_content),
+      starUpdateTimeStr: rep.star_update_time_str ?? null,
+      analystReportUpdateTimeStr: rep.analyst_report_update_time_str ?? null,
+      pdfUrl: rep.pdf_url ?? null,
+    };
+  } catch {
+    return unavailable;
   }
 }
 

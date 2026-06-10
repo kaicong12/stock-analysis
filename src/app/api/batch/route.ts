@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
             ticker: tk,
             stage: "verdict",
             status: "done",
-            confidence: verdict.confidence,
+            confidence: verdict.derivatives.confidence,
           });
 
           const payload: BatchTickerPayload = {

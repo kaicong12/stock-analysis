@@ -1362,3 +1362,28 @@ def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
     }
 
 
+# ---- Morningstar research report (replaces the moomoo news flow as the News --
+# Flow panel's self-signal). OpenD's get_research_morningstar_report carries the
+# forward-looking analyst view (fair value, economic moat, uncertainty, bull/bear
+# case, capital allocation, the latest analyst note) that the trailing yfinance
+# fundamentals snapshot and the recency-sorted news search both miss. Requires
+# moomoo-api >= 10.5; rate-limited to 30 req / 30s; common stocks + REITs only.
+# Never raises — returns {available: False} so the panel degrades to "n/a".
+@app.get("/research/morningstar")
+def research_morningstar(symbol: str = Query(..., description="e.g. US.META")):
+    try:
+        with quote_ctx() as ctx:
+            ret, data = ctx.get_research_morningstar_report(symbol)
+    except Exception as exc:  # SDK too old, OpenD down, etc.
+        return {"symbol": symbol, "available": False, "error": str(exc)[:300]}
+    if ret != RET_OK:
+        # err_code path (no report for this code, unsupported asset, rate limit)
+        return {"symbol": symbol, "available": False, "error": str(data)[:300]}
+    rec = _normalize(data)
+    if isinstance(rec, list):
+        rec = rec[0] if rec else {}
+    if not isinstance(rec, dict) or not rec:
+        return {"symbol": symbol, "available": False, "error": "empty report"}
+    return {"symbol": symbol, "available": True, "report": rec}
+
+
