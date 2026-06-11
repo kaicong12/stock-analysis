@@ -104,10 +104,14 @@ export function VerdictCard({ data, isPickLoading = false, pickError = null }: {
       </div>
 
       <div className={styles.confidenceBlock}>
-        <div className={styles.confidenceLabel}>Confidence</div>
-        <div className={styles.confidenceValue + " font-display"}>{v.confidence}%</div>
-        <div className={styles.confidenceInterpretation}>{confidenceInterpretation(v.confidence)}</div>
-        <div className={styles.confidenceTrack}><div className={styles.confidenceFill} style={{ width: `${Math.max(2, Math.min(100, v.confidence))}%` }} /></div>
+        <div className={styles.confidenceLabel}>Stock</div>
+        <div className={styles.confidenceValue + " font-display"}>{v.stock.confidence}%</div>
+        <div className={styles.confidenceInterpretation}>{confidenceInterpretation(v.stock.confidence)}</div>
+        <div className={styles.confidenceTrack}><div className={styles.confidenceFill} style={{ width: `${Math.max(2, Math.min(100, v.stock.confidence))}%` }} /></div>
+        <div className={styles.confidenceLabel} style={{ marginTop: 12 }}>Derivatives</div>
+        <div className={styles.confidenceValue + " font-display"}>{v.derivatives.confidence}%</div>
+        <div className={styles.confidenceInterpretation}>{confidenceInterpretation(v.derivatives.confidence)}</div>
+        <div className={styles.confidenceTrack}><div className={styles.confidenceFill} style={{ width: `${Math.max(2, Math.min(100, v.derivatives.confidence))}%` }} /></div>
       </div>
 
       <div className={styles.sleeveGrid}>

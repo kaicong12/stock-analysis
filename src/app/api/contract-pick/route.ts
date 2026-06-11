@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
       spot: chain.spot,
       derivativesAction: body.verdict.derivatives.action,
       direction: body.verdict.derivatives.direction,
-      confidence: body.verdict.confidence,
+      confidence: body.verdict.derivatives.confidence,
       chain,
       portfolio: body.portfolio ?? null,
       heldPositions: body.heldPositions ?? [],
