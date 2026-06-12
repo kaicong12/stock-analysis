@@ -8,6 +8,7 @@ import {
 } from "../../../lib/batch/protocol";
 import { runWithConcurrency } from "../../../lib/concurrency";
 import { panelError, runPanel } from "../../../lib/gemini/runPanel";
+import { fetchMacroContext } from "../../../lib/gemini/macro";
 import { synthesizeVerdict } from "../../../lib/gemini/synth";
 import { getPriceAction, getSnapshot, getTechnicalIndicators } from "../../../lib/moomoo/sidecar";
 import { prepareSharedPortfolio, prepareTickerSubset } from "../../../lib/positions/prepare";
@@ -53,6 +54,11 @@ export async function GET(request: NextRequest) {
       // ticker payload before saving. Avoids serializing the same portfolio N
       // times into the SSE stream and N times into sessionStorage.
       send({ event: "portfolio", portfolio: shared.portfolio });
+
+      // Fetch macro context once for the whole batch — same live web-search
+      // snapshot fed to every ticker's synthesizeVerdict. fetchMacroContext
+      // never throws; returns null when unavailable (synth degrades gracefully).
+      const macroContext = await fetchMacroContext();
 
       await runWithConcurrency(tickers, concurrency, async (rawTicker) => {
         try {
@@ -118,6 +124,7 @@ export async function GET(request: NextRequest) {
               heldGroups: subset.heldGroups,
               priceAction: await priceActionPromise,
               technicalIndicators: await technicalIndicatorsPromise,
+              macroContext,
               panels,
             });
             verdict = { ...synth, panels };
