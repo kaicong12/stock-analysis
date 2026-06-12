@@ -25,9 +25,20 @@ export interface NewsResult {
   items: NewsItem[];
 }
 
-export interface DigestResult {
+// Web-grounded news for the Stock Digest panel (Gemini + Google Search).
+// `text` is the model's briefing with [n] citation markers inlined; `sources`
+// is the numbered grounding list those markers refer to. Source URLs are
+// Google grounding redirects (opaque, but resolve to the real article).
+export interface WebNewsSource {
+  index: number;
+  domain: string;
+  url: string;
+}
+
+export interface WebNewsResult {
   symbol: string;
-  items: NewsItem[];
+  text: string;
+  sources: WebNewsSource[];
 }
 
 // Morningstar research report (OpenD get_research_morningstar_report), the News
@@ -319,7 +330,11 @@ export type PanelDirection = "bullish" | "bearish" | "neutral" | "mixed" | "n/a"
 
 export interface PanelEvidence {
   title: string;
+  // May be empty when no grounded source matched the item (digest panel) —
+  // the UI renders a non-link row in that case.
   url: string;
+  // Digest panel only: 1-2 lines on why the item matters for the price.
+  summary?: string;
 }
 
 export interface PanelMeta {
@@ -523,7 +538,6 @@ export interface DashboardData {
   technical: AnomalyResult | null;
   derivatives: AnomalyResult | null;
   news: NewsResult | null;
-  digest: DigestResult | null;
   sentiment: CommentSentimentResult | null;
   fundamentals: FundamentalsResult | null;
   portfolio: Portfolio | null;

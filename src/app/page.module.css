@@ -815,10 +815,21 @@
   padding-top: 2px;
   font-variant-numeric: tabular-nums;
 }
+.evidenceBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .evidenceTitle {
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--on-surface);
+}
+.evidenceSummary {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--on-surface-variant);
 }
 
 /* News-panel peer read-through sub-block. A direction-colored left border and

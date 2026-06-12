@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import styles from "../page.module.css";
 import type {
   CommentSentimentResult,
-  DigestResult,
   InsiderFlowItem,
   NewsItem,
   NewsResult,
@@ -34,7 +33,7 @@ export function Panel(props: {
   summary?: PanelSummary;
   raw?: string;
   fallback?: string;
-  news?: NewsResult | DigestResult | null;
+  news?: NewsResult | null;
   feed?: CommentSentimentResult | null;
 }) {
   const summary = props.summary;
@@ -111,21 +110,35 @@ function MetaRow({ meta }: { meta: PanelMeta[] }) {
   );
 }
 
+// Digest evidence carries a per-item summary under the headline; items with no
+// grounded source URL render as plain rows instead of links.
 function EvidenceList({ items }: { items: PanelEvidence[] }) {
   return (
     <div className={styles.evidenceList}>
-      {items.slice(0, 5).map((item, i) => (
-        <a
-          key={i}
-          className={styles.evidenceItem}
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <span className={styles.evidenceIndex}>{String(i + 1).padStart(2, "0")}</span>
-          <span className={styles.evidenceTitle}>{item.title}</span>
-        </a>
-      ))}
+      {items.slice(0, 5).map((item, i) => {
+        const body = (
+          <>
+            <span className={styles.evidenceIndex}>{String(i + 1).padStart(2, "0")}</span>
+            <span className={styles.evidenceBody}>
+              <span className={styles.evidenceTitle}>{item.title}</span>
+              {item.summary && <span className={styles.evidenceSummary}>{item.summary}</span>}
+            </span>
+          </>
+        );
+        return item.url ? (
+          <a
+            key={i}
+            className={styles.evidenceItem}
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {body}
+          </a>
+        ) : (
+          <div key={i} className={styles.evidenceItem}>{body}</div>
+        );
+      })}
     </div>
   );
 }

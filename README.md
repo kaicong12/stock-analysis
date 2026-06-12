@@ -32,7 +32,7 @@ Set in `.env.local` (Next app) — see `src/lib/env.ts`:
 ## Data layers
 
 - **IBKR Client Portal** — live positions, account summary, ledger (`src/lib/ibkr/client.ts`); **Flex Web Service** for historical trade sync feeding the P&L calendar (`src/lib/ibkr/flex.ts`).
-- **moomoo OpenD** — option chain (Lv1 greeks/quotes), the three anomaly feeds (capital/technical/derivatives), news, digest, community feed, and peer graph. Reached via the python sidecar and `src/lib/moomoo/httpApi.ts`.
+- **moomoo OpenD** — option chain (Lv1 greeks/quotes), the three anomaly feeds (capital/technical/derivatives), news, community feed, and peer graph. Reached via the python sidecar and `src/lib/moomoo/httpApi.ts`.
 - **yfinance (via sidecar)** — fundamentals plus daily OHLCV (cached in SQLite). The OHLCV is what powers the **deterministic, server-computed** layers: technical indicators, the IV/HV vol summary, and the price-action signal. These are computed in Python and cited verbatim — never inferred by the LLM.
 - **Massive (ex-Polygon)** — SEC Form 4 insider buys/sells (`src/lib/massive/insider.ts`).
 
@@ -94,7 +94,7 @@ Recent insider buys/sells — who (officer/director/10% owner), how much, at wha
 
 ### Stock Digest — `src/lib/gemini/panels/digest.ts`
 
-Source: moomoo's "digest" news view — typically broker reports, analyst notes, and longer-form research items as opposed to the breaking-news flow.
+Source: web search via the Gemini direct API with Google Search grounding (`src/lib/gemini/webNews.ts`) — asked specifically for price-moving catalysts (earnings, capital raises, regulatory actions, analyst moves) rather than everything that mentions the ticker. Each evidence item carries a headline, a why-it-matters summary, and a grounded source link. This is the only per-ticker consumer of `GEMINI_API_KEY` (one call per ticker per run); the panel degrades to its empty state when the key is unset.
 
 ### Community Sentiment — `src/lib/gemini/panels/sentiment.ts`
 

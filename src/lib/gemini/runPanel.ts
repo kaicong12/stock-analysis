@@ -1,4 +1,5 @@
-import { collatePeerNews, getStockFeed, newsForDigest } from "../moomoo/httpApi";
+import { collatePeerNews, getStockFeed } from "../moomoo/httpApi";
+import { searchStockNews } from "./webNews";
 import { getAnomaly, getFundamentals, getMorningstar, getPeers, getTechnicalIndicators, getVolSummary } from "../moomoo/sidecar";
 import { getInsiderTransactions } from "../massive/insider";
 import { ticker as toTicker } from "../symbol";
@@ -66,7 +67,11 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
       return { summary: await analyzeNews(report, ctx, peerNews) };
     }
     case "digest": {
-      const data = await newsForDigest(ticker);
+      // Web-grounded news via Gemini search (the moomoo keyword feed surfaced
+      // too many items that merely mention the ticker). Null (missing key /
+      // empty response) degrades to the panel's empty state; API errors throw
+      // into the caller's settle wrapper like every other panel.
+      const data = await searchStockNews(ticker, symbol);
       return { summary: await analyzeDigest(data, ctx) };
     }
     case "sentiment": {
