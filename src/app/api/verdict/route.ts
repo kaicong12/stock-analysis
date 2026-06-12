@@ -20,6 +20,7 @@ interface VerdictBody {
   portfolio?: Portfolio | null;
   heldPositions?: Position[];
   heldGroups?: HeldGroup[];
+  macroContext?: string | null;
   panels?: {
     capital: PanelSummary;
     technical: PanelSummary;
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
       heldGroups: body.heldGroups ?? [],
       priceAction,
       technicalIndicators,
+      macroContext: body.macroContext ?? null,
       panels: body.panels,
     });
     return Response.json({ verdict });

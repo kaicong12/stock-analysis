@@ -192,9 +192,17 @@ The derivatives direction is determined exclusively by signals that reflect what
 
 Do NOT anchor the derivatives direction on: Morningstar fair value estimates, long-horizon P/E or EV multiples, multi-year revenue growth trajectories, or management long-term targets. Those are quality filters for the STOCK sleeve. A stock that is fundamentally sound but technically breaking down with negative flow, bearish insider activity, and a competitive peer threat warrants SELL_CALL_SPREAD (short-term bearish) — not SELL_PUT_SPREAD anchored to a $165 FVE.
 
+derivatives.confidence is scored ONLY on agreement AMONG the short-term signal set above — NEVER on the long-term thesis. This is critical and routinely gets it wrong:
+- Cross-horizon tension (stock sleeve long-term bullish while the short-term signals are bearish, or vice versa) is NOT "panel disagreement" and MUST NOT lower derivatives.confidence. It is the EXPECTED split between a multi-quarter accumulation thesis and a 30-45 DTE fade. A strong long-term bull case does NOT make the short-term bearish read "noisy" or "coin-flip" — the two live on different clocks. Do not average them.
+- The ONLY disagreement that lowers derivatives.confidence is conflict WITHIN the short-term set itself (e.g. priceAction breakdown BUT capital inflow BUT bullish technical regime).
+- When ≥2 of {priceAction breakdown/breakout, technical regime direction, majority sentiment, capital-flow direction} align, the short-term thesis is "independently clean" → derivatives.confidence ≥ 55 → take the aligned-side credit spread, NOT PASS. Example: priceAction breakdown + bearish technical regime + 64% bearish sentiment = three aligned bearish short-term signals → SELL_CALL_SPREAD with derivatives.confidence ≥ 55, even when the stock sleeve is 75% long-term bullish. Selling call premium INTO confirmed near-term weakness is correct; the long-term FVE is irrelevant to the 30-45 DTE bet.
+
+MACRO ENVIRONMENT (payload field: macroEnvironment):
+A live web-search snapshot of the current macro backdrop — Fed/rates, inflation, geopolitical events, and sector flows — fetched at request time. Use it as ambient context that can reinforce or temper the panel signals; weight it at ~10-20% of the directional call. Examples: a Fed hiking cycle or rising energy CPI is a macro headwind that can justify lower derivatives.confidence or a PASS even when individual panels are mixed; a soft-landing/rate-cut environment is a tailwind that can lift the stock sleeve's bullish conviction. Do NOT override clear panel signals with macro alone, and do NOT cite macro as the primary reason for a derivatives action. If macroEnvironment is null, ignore this section entirely.
+
 PASS criteria — apply BEFORE the IV regime / eligibility logic below to skip the sleeve entirely. The derivatives sleeve is NOT obligated to find a trade; "no opinion" is a valid stance and routinely the right one for a conservative book.
 - Conviction < 55 AND the derivatives panel does not cite an IV-HV premium → PASS. At coin-flip conviction with fairly-priced vol, neither credit nor debit has a structural edge.
-- Panels in severe directional disagreement — e.g. capital outflow + bullish technicals + sentiment euphoric, or fundamentals weakening while flow is strong → PASS. Signals too noisy to size a one-sided derivative bet, even a far-OTM credit one.
+- Panels in severe directional disagreement WITHIN THE SHORT-TERM SET — e.g. capital outflow + bullish technicals + sentiment euphoric → PASS. Signals too noisy to size a one-sided derivative bet, even a far-OTM credit one. NOTE: stock-sleeve long-term bullishness conflicting with short-term bearish signals is NOT this case — that is the normal time-horizon split and does NOT justify PASS (see derivatives.confidence scoring above).
 - Direction "neutral" with conviction < 65 AND no IV-HV premium cited → PASS. No thesis to translate into either premium-collection or premium-payment.
 - The rationale MUST name which PASS criterion fired (e.g. "PASS: conviction 52 with derivatives panel IV-HV at parity — no edge in either direction").
 
@@ -348,6 +356,9 @@ export interface SynthInput {
   // server-computed. Complements the technical panel's anomaly EVENTS with the
   // current STATE (e.g. overbought). Null when the sidecar is unavailable.
   technicalIndicators: TechnicalIndicators | null;
+  // Live macro backdrop from Gemini + Google Search grounding, fetched once on
+  // page load. Ambient context only — do not override panel signals with it.
+  macroContext?: string | null;
   panels: {
     capital: PanelSummary;
     technical: PanelSummary;
@@ -583,6 +594,10 @@ function buildPrompt(input: SynthInput): string {
     // Standing technical-indicator readings (RSI/MACD/Bollinger/SMA distances).
     // See the TECHNICAL INDICATOR STATE section in SYSTEM_INSTRUCTION.
     technicalIndicators: input.technicalIndicators ?? null,
+    // Ambient macro backdrop (live web-search). Treat as a 10-20% weight on the
+    // directional call — reinforces or tempers panel signals, does not override them.
+    // Null when unavailable; ignore if null.
+    macroEnvironment: input.macroContext ?? null,
     panelSummaries: {
       capital: compressPanel(input.panels.capital),
       technical: compressPanel(input.panels.technical),
