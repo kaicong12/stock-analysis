@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { FormEvent, ReactNode } from "react";
 import styles from "./page.module.css";
 import type {
-  ContractPick,
   HeldGroup,
   PanelSummary,
   Portfolio,
@@ -50,9 +49,8 @@ interface State {
   ticker: string;
   symbol: string;
   tickerInput: string;
-  status: "idle" | "prepping" | "panels" | "verdict" | "picking" | "done" | "error";
+  status: "idle" | "prepping" | "panels" | "verdict" | "done" | "error";
   topError: string | null;
-  pickError: string | null;
   errors: { source: string; message: string }[];
   snapshot: SnapshotResult | null;
   portfolio: Portfolio | null;
@@ -60,9 +58,6 @@ interface State {
   heldGroups: HeldGroup[];
   panels: Record<PanelKey, PanelState>;
   verdict: Verdict | null;
-  // Surfaced from the fundamentals panel response so we can forward it
-  // to /api/contract-pick. Null when yfinance has no listed earnings date.
-  nextEarningsDate: string | null;
 }
 
 type Action =
@@ -71,12 +66,10 @@ type Action =
   | { type: "submit_error"; message: string }
   | { type: "prep_done"; payload: { ticker: string; symbol: string; snapshot: SnapshotResult; portfolio: Portfolio | null; heldPositions: Position[]; heldGroups: HeldGroup[]; errors: State["errors"] } }
   | { type: "panel_loading"; name: PanelKey }
-  | { type: "panel_done"; name: PanelKey; summary: PanelSummary; error?: string; nextEarningsDate?: string | null }
+  | { type: "panel_done"; name: PanelKey; summary: PanelSummary; error?: string }
   | { type: "verdict_loading" }
   | { type: "verdict_done"; verdict: Verdict }
   | { type: "verdict_error"; message: string }
-  | { type: "pick_loading" }
-  | { type: "pick_done"; pick: ContractPick | null; error?: string }
   | { type: "set_portfolio"; p: Portfolio; heldGroups: HeldGroup[] }
   | { type: "hydrate_from_cache"; payload: BatchTickerPayload };
 
@@ -91,7 +84,6 @@ const INITIAL: State = {
   tickerInput: "",
   status: "idle",
   topError: null,
-  pickError: null,
   errors: [],
   snapshot: null,
   portfolio: null,
@@ -99,7 +91,6 @@ const INITIAL: State = {
   heldGroups: [],
   panels: emptyPanels,
   verdict: null,
-  nextEarningsDate: null,
 };
 
 function reducer(state: State, a: Action): State {
@@ -138,12 +129,6 @@ function reducer(state: State, a: Action): State {
     case "panel_done":
       return {
         ...state,
-        // Capture the earnings date when the fundamentals panel finishes —
-        // it's what the contract picker needs for earnings-aware expiry.
-        nextEarningsDate:
-          a.name === "fundamentals" && a.nextEarningsDate !== undefined
-            ? a.nextEarningsDate
-            : state.nextEarningsDate,
         panels: {
           ...state.panels,
           [a.name]: a.error
@@ -154,22 +139,9 @@ function reducer(state: State, a: Action): State {
     case "verdict_loading":
       return { ...state, status: "verdict" };
     case "verdict_done":
-      return { ...state, status: "picking", verdict: a.verdict };
+      return { ...state, status: "done", verdict: a.verdict };
     case "verdict_error":
       return { ...state, status: "error", topError: a.message };
-    case "pick_loading":
-      return { ...state, status: "picking" };
-    case "pick_done":
-      return state.verdict
-        ? {
-            ...state,
-            status: "done",
-            pickError: a.error ?? null,
-            verdict: a.pick
-              ? { ...state.verdict, derivatives: { ...state.verdict.derivatives, contractPick: a.pick } }
-              : state.verdict,
-          }
-        : { ...state, status: "done", pickError: a.error ?? null };
     case "set_portfolio":
       // Only overwrite heldGroups if a search hasn't already enriched them with
       // ticker-specific live Greeks (state.ticker is set after /api/prep).
@@ -190,7 +162,6 @@ function reducer(state: State, a: Action): State {
         ...state,
         status: "done",
         topError: null,
-        pickError: null,
         errors: [],
         ticker: a.payload.ticker,
         symbol: a.payload.symbol,
@@ -201,7 +172,6 @@ function reducer(state: State, a: Action): State {
         heldGroups: a.payload.heldGroups,
         panels: panelsReady,
         verdict: a.payload.verdict,
-        nextEarningsDate: a.payload.nextEarningsDate,
       };
     }
   }
@@ -326,20 +296,14 @@ export default function Page() {
     }
     dispatch({ type: "prep_done", payload: prep });
 
-    // Fundamentals panel piggybacks the raw nextEarningsDate alongside its
-    // summary so the contract picker can apply earnings-aware expiry rules.
-    let fundamentalsEarningsDate: string | null = null;
     const panelResults = await Promise.allSettled(
       PANELS.map(async (name) => {
-        const r = await postJson<{ name: PanelKey; summary: PanelSummary; error?: string; nextEarningsDate?: string | null }>(
+        const r = await postJson<{ name: PanelKey; summary: PanelSummary; error?: string }>(
           `/api/panel/${name}`,
           { ticker: prep.ticker },
           signal,
         );
-        if (r.name === "fundamentals" && r.nextEarningsDate !== undefined) {
-          fundamentalsEarningsDate = r.nextEarningsDate;
-        }
-        dispatch({ type: "panel_done", name: r.name, summary: r.summary, error: r.error, nextEarningsDate: r.nextEarningsDate });
+        dispatch({ type: "panel_done", name: r.name, summary: r.summary, error: r.error });
         return r;
       }),
     );
@@ -377,39 +341,6 @@ export default function Page() {
       return;
     }
     dispatch({ type: "verdict_done", verdict: { ...verdictRes.verdict, panels: { ...summaries } } });
-
-    // Contract pick — only when the action is picker-eligible.
-    const eligibleActions = new Set([
-      "SELL_PUT_SPREAD", "SELL_CALL_SPREAD",
-      "SELL_COVERED_CALL", "SELL_CASH_SECURED_PUT", "ROLL_OUT",
-    ]);
-    if (eligibleActions.has(verdictRes.verdict.derivatives.action)) {
-      try {
-        const pickRes = await postJson<{ pick: ContractPick | null }>(
-          "/api/contract-pick",
-          {
-            ticker: prep.ticker,
-            symbol: prep.symbol,
-            snapshot: prep.snapshot,
-            portfolio: prep.portfolio,
-            heldPositions: prep.heldPositions,
-            heldGroups: prep.heldGroups,
-            verdict: verdictRes.verdict,
-            nextEarningsDate: fundamentalsEarningsDate,
-          },
-          signal,
-        );
-        if (!signal.aborted) dispatch({ type: "pick_done", pick: pickRes.pick });
-      } catch (err) {
-        if ((err as Error).name === "AbortError") return;
-        // Picker errors are non-fatal — verdict stays without a pick. Surface
-        // the message inline in the Derivatives Sleeve so the missing card
-        // doesn't look like a feature.
-        dispatch({ type: "pick_done", pick: null, error: (err as Error).message });
-      }
-    } else {
-      dispatch({ type: "pick_done", pick: null });
-    }
   }, []);
 
   const onSubmit = useCallback(
@@ -521,8 +452,6 @@ export default function Page() {
 
             {state.verdict && (
               <VerdictCard
-                isPickLoading={state.status === "picking"}
-                pickError={state.pickError}
                 data={{
                   ticker: state.ticker,
                   symbol: state.symbol,
@@ -536,7 +465,7 @@ export default function Page() {
               />
             )}
 
-            {(state.status === "verdict" || state.status === "picking") && !state.verdict && (
+            {state.status === "verdict" && !state.verdict && (
               <div className={styles.errorBanner} style={{ background: "var(--surface-container)" }}>
                 <strong>Synthesizing verdict…</strong>
                 <span>Aggregating panels into the dual-sleeve recommendation.</span>

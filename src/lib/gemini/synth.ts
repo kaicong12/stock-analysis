@@ -79,7 +79,7 @@ const DERIVATIVES_SLEEVE_SCHEMA = {
 };
 
 // Dual-sleeve verdict — does NOT include the panels (route attaches them
-// post-synth) or contractPick (separate picker call attaches it later).
+// post-synth).
 const VERDICT_RESPONSE_SCHEMA = {
   type: "object",
   properties: {
@@ -111,8 +111,8 @@ EARNINGS HANDLING (this user is a CONSERVATIVE TRADER who wants to be FULLY OUT 
   - riskFactor: MUST start with the literal prefix "Earnings risk: " before the rest of the risk sentence.
 
 - CONSERVATIVE-TRADER GATE (replaces the old "prefer short vega on debit when earnings ≤ 10d" rule):
-  - When 0 < earningsDaysAway ≤ 32 (earnings would land inside a standard 30-DTE credit spread WITH the 2-day exit buffer): the derivatives sleeve SHOULD prefer either (a) a PASS, or (b) a credit spread sized so the picker can choose a sub-earnings expiry ≥ 2d before the print. The picker has the chain and will refuse to recommend an earnings-straddle expiry; if no preEarningsSafe expiry exists in the chain, the route layer will flip the action to PASS. So you may recommend a credit spread when you are confident a pre-earnings expiry exists in the 20-45 DTE band (i.e. earningsDaysAway ≥ 22, leaving room for ~20 DTE pre-earnings); otherwise default to PASS.
-  - When 33 ≤ earningsDaysAway ≤ 47 (earnings would land inside a 45-DTE expiry with buffer): a standard 30-DTE pre-earnings expiry is feasible; recommend the credit spread but cite that the picker will be steered toward a pre-earnings expiry.
+  - When 0 < earningsDaysAway ≤ 32 (earnings would land inside a standard 30-DTE credit spread WITH the 2-day exit buffer): the derivatives sleeve SHOULD prefer either (a) a PASS, or (b) a credit spread whose adjustment.instruction EXPLICITLY directs the user to choose an expiry that finishes ≥ 2d before the print. There is no downstream safety net — the user selects the actual contract in IBKR, so the instruction itself must carry the expiry constraint. You may recommend a credit spread when a pre-earnings expiry plausibly exists in the 20-45 DTE band (i.e. earningsDaysAway ≥ 22, leaving room for ~20 DTE pre-earnings); otherwise default to PASS.
+  - When 33 ≤ earningsDaysAway ≤ 47 (earnings would land inside a 45-DTE expiry with buffer): a standard 30-DTE pre-earnings expiry is feasible; recommend the credit spread and state in the instruction that the expiry must finish ≥ 2d before the print.
   - When earningsDaysAway > 47 OR null: no earnings constraint, but the always-cite rule still applies.
 
 - These rules supersede the general 3-5 sentence rationale guidance: when earnings is near, the earnings fact takes precedence in placement.
@@ -280,7 +280,7 @@ Position Management Status (deterministic, server-computed):
 - The user's held legs on this ticker have been auto-grouped into structures (BULL_PUT_SPREAD, BEAR_CALL_SPREAD, COVERED_CALL, CSP, LONG_CALL, etc.) with three trigger flags pre-evaluated against the tastytrade defaults: pt50Hit, dteUnder21, stopBreached. Each group also carries a ruleSuggestion ∈ {HOLD, CLOSE, ROLL_OUT, ROLL_OUT_AND_DOWN, ROLL_OUT_AND_UP}.
 - TRUST these flags. They use real numbers (avgCost vs. mktPrice, dte from expiry, openCredit). Do not recompute or second-guess them.
 - When a group has a ruleSuggestion of CLOSE / ROLL_OUT*, your derivatives.action SHOULD match (CLOSE → CLOSE; ROLL_OUT* → ROLL_OUT). If you choose differently, the rationale MUST explain WHY — e.g. "ruleSuggestion CLOSE on the BULL_PUT_SPREAD because pt50Hit, but I'd HOLD because earnings are 3 days out and IV is collapsing post-print, so the remaining theta will harvest fast".
-- ROLL_OUT_AND_DOWN means: roll the bull put spread (or short put) to a later expiry AND lower strikes — buy more cushion away from the threatened lower side. ROLL_OUT_AND_UP is the bear-call equivalent. The contract picker downstream consumes this hint; your job is to commit to ROLL_OUT in the sleeve action and call out the direction in adjustment.instruction.
+- ROLL_OUT_AND_DOWN means: roll the bull put spread (or short put) to a later expiry AND lower strikes — buy more cushion away from the threatened lower side. ROLL_OUT_AND_UP is the bear-call equivalent. Your job is to commit to ROLL_OUT in the sleeve action and call out the direction (down/up) in adjustment.instruction — the user executes the roll in IBKR.
 
 - ROLL-INTO-EARNINGS GUARD: when the rule-based suggestion is ROLL_OUT* AND the held leg is at a LOSS (positionManagement[].pnlPctOfMax < 0) AND earningsDaysAway is non-null AND ≤ 47 (a typical 30-DTE roll target would land inside or beyond the earnings buffer): output action CLOSE instead of ROLL_OUT. The conservative profile won't carry a losing credit position into the print, and rolling +30-60 DTE into an earnings-straddle compounds the risk that triggered the roll. Rationale MUST state: "Held leg losing (pnlPctOfMax {value}) and rolling would land inside the earnings window (earnings {N}d away on {YYYY-MM-DD}) — closing instead." Re-entry post-print can be evaluated on a fresh thesis.
 
@@ -304,7 +304,7 @@ ROLL_OUT decision rule (when you'd otherwise pick CLOSE on a held credit positio
 
 When the user holds an existing options structure (e.g. a 175/180 call spread), do NOT pretend it is a single contract. Reason about both legs and prefer actions that close/adjust the structure as a whole when the thesis flips.
 
-adjustment.instruction (derivatives sleeve): plain English describing the play. Example: "Sell a 30-45 DTE bull put spread. Take profit at 50% of max." Describe DTE band + structure + management plan. DO NOT include specific deltas, strike prices, premium amounts, OR "% NAV" / contract counts — the contract picker downstream owns strike + delta selection from the live chain (defaults to far-OTM Δ 0.15-0.20 short legs and only tightens with conviction), and the server computes and appends the sizing footer from sizeContracts. Any "% NAV" or "(~N contracts)" you write here will be stripped and replaced. Same rule for ROLL_OUT: describe geometry ("roll the short leg further OTM and out 30 days") without naming target strikes or specific deltas.
+adjustment.instruction (derivatives sleeve): plain English describing the play. Example: "Sell a 30-45 DTE bull put spread. Take profit at 50% of max." Describe DTE band + structure + management plan. DO NOT include specific deltas, strike prices, premium amounts, OR "% NAV" / contract counts — strike + delta selection happens in IBKR at execution time (default guidance: far-OTM Δ 0.15-0.20 short legs, tighten only with conviction), and the server computes and appends the sizing footer from sizeContracts. Any "% NAV" or "(~N contracts)" you write here will be stripped and replaced. Same rule for ROLL_OUT: describe geometry ("roll the short leg further OTM and out 30 days") without naming target strikes or specific deltas.
 
 adjustment.sizeContracts (derivatives sleeve): REQUIRED integer contract count for new entries (SELL_PUT_SPREAD / SELL_CALL_SPREAD / SELL_CASH_SECURED_PUT / SELL_COVERED_CALL / IRON_CONDOR) and INCREASE. Pick contracts so the approximate max risk lands inside the target NAV band:
 - CSP: cap notional (strike × 100 × contracts) at availableFundsBase AND total notional at ≤ 5-10% NAV.
@@ -637,7 +637,7 @@ interface RawVerdict {
   derivatives: { action: DerivativesAction; direction: SleeveDirection; confidence: number; adjustment: PositionAdjustment };
 }
 
-// Standard credit-spread width by underlying price (matches contract-picker).
+// Standard credit-spread width by underlying price.
 function standardSpreadWidth(spot: number): number {
   if (spot < 200) return 5;
   if (spot < 500) return 10;
@@ -645,8 +645,7 @@ function standardSpreadWidth(spot: number): number {
 }
 
 // Approximate max-loss per contract for the action, in the underlying's trade
-// currency. Used purely for the synth-stage NAV % footer — the contract picker
-// downstream computes the real number from live quotes. These are rough but
+// currency. Used purely for the synth-stage NAV % footer. These are rough but
 // representative for sizing display.
 function approxRiskPerContractTradeCcy(action: DerivativesAction, spot: number): number {
   if (spot <= 0) return 0;
@@ -731,7 +730,7 @@ function appendDerivativesSizingFooter(
 }
 
 // Returns the dual-sleeve verdict fields only — the route attaches the panels
-// (already known) and the optional contractPick (from the downstream picker).
+// (already known).
 export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict, "panels">> {
   const elig = computeEligibility(input);
   const raw = await genJson<RawVerdict>({
@@ -750,9 +749,9 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
   }
 
   // Safety override: if the LLM ignored an eligibility gate (it does, sometimes),
-  // rewrite the action to the defined-risk fallback before the picker sees it.
-  // The picker would otherwise size an unfundable order. Loud console.warn so
-  // we know the prompt isn't doing its job and can tune it.
+  // rewrite the action to the defined-risk fallback — otherwise the verdict
+  // would recommend an unfundable order. Loud console.warn so we know the
+  // prompt isn't doing its job and can tune it.
   let derivAction = raw.derivatives.action;
   let derivInstr = raw.derivatives.adjustment.instruction;
   if (derivAction === "SELL_CASH_SECURED_PUT" && !elig.cspEligible) {
