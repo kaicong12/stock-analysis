@@ -46,9 +46,10 @@ const STOCK_SLEEVE_SCHEMA = {
       enum: ["OPEN", "INCREASE", "TRIM", "HOLD", "CLOSE", "PASS"],
     },
     direction: { type: "string", enum: ["bullish", "bearish", "neutral"] },
+    confidence: { type: "integer", minimum: 0, maximum: 100 },
     adjustment: ADJUSTMENT_SCHEMA,
   },
-  required: ["action", "direction", "adjustment"],
+  required: ["action", "direction", "confidence", "adjustment"],
 };
 
 const DERIVATIVES_SLEEVE_SCHEMA = {
@@ -71,9 +72,10 @@ const DERIVATIVES_SLEEVE_SCHEMA = {
       ],
     },
     direction: { type: "string", enum: ["bullish", "bearish", "neutral"] },
+    confidence: { type: "integer", minimum: 0, maximum: 100 },
     adjustment: ADJUSTMENT_SCHEMA,
   },
-  required: ["action", "direction", "adjustment"],
+  required: ["action", "direction", "confidence", "adjustment"],
 };
 
 // Dual-sleeve verdict — does NOT include the panels (route attaches them
@@ -81,13 +83,12 @@ const DERIVATIVES_SLEEVE_SCHEMA = {
 const VERDICT_RESPONSE_SCHEMA = {
   type: "object",
   properties: {
-    confidence: { type: "integer", minimum: 0, maximum: 100 },
     rationale: { type: "string" },
     riskFactor: { type: "string" },
     stock: STOCK_SLEEVE_SCHEMA,
     derivatives: DERIVATIVES_SLEEVE_SCHEMA,
   },
-  required: ["confidence", "rationale", "riskFactor", "stock", "derivatives"],
+  required: ["rationale", "riskFactor", "stock", "derivatives"],
 };
 
 // ---------- system instruction ----------
@@ -116,7 +117,10 @@ EARNINGS HANDLING (this user is a CONSERVATIVE TRADER who wants to be FULLY OUT 
 
 - These rules supersede the general 3-5 sentence rationale guidance: when earnings is near, the earnings fact takes precedence in placement.
 
-Conviction (single confidence 0-100): your overall directional read. 50 = coin-flip; >75 = strong; 90+ = rare. Both sleeves share this confidence — they just translate it into different products.
+Conviction — each sleeve has its own independent confidence (0-100) reflecting its own time horizon:
+- stock.confidence: conviction in the multi-week to multi-quarter directional thesis. Driven by fundamentals, valuation, long-term technicals, Morningstar quality signals.
+- derivatives.confidence: conviction in the 30-45 DTE window thesis. Driven by short-term signals only (see DERIVATIVES DIRECTION section below). 50 = coin-flip; >75 = strong; 90+ = rare.
+These numbers will often differ. A stock at 70% long-term bullish conviction can have 55% short-term bearish conviction (sell calls while it bleeds). Use each confidence independently — do NOT average them or force them to match.
 
 The user may hold MULTIPLE positions on the same ticker — e.g. long stock + a short covered call, or both legs of a vertical spread. Treat them as a structure: read the net stock shares and the option legs together. A position with quantity > 0 is LONG, quantity < 0 is SHORT.
 
@@ -176,9 +180,29 @@ OVERBOUGHT / OVERSOLD IS A MOMENTUM READING, NOT A REVERSAL SIGNAL. The single m
 
 - When any of these gates is material, CITE the numbers in the rationale (e.g. "technicalIndicators: regime strong_uptrend, adx14 31, rsiDivergence none — RSI 80.7 is momentum not exhaustion, NOT fading with a call spread"; or "regime range, adx14 14, RSI 78 — overbought mean-reverts here, SELL_CALL_SPREAD with the bearish panels").
 
+DERIVATIVES DIRECTION — SHORT-TERM SIGNAL SET (30-45 DTE window only):
+The derivatives direction is determined exclusively by signals that reflect what the stock is likely to do over the next 30-45 days. Use ONLY these inputs for the derivatives directional call:
+- priceAction: server-computed breakdown/breakout signal and its reasons. This is the strongest short-term read.
+- technicalIndicators: RSI, MACD, Bollinger %B, SMA distances, ADX regime. Current state of momentum and trend structure.
+- Capital flow panel: buying/selling pressure, major-capital flow direction over recent sessions.
+- Community sentiment panel: retail positioning and crowd tone — a contrarian signal when extreme.
+- Derivatives panel: IV/HV regime, skew, options flow (PCR, block trades, unusual activity).
+- Insider flow (discretionary only): a cluster of open-market discretionary sells by distinct insiders is a short-term bearish signal for the 30-45d window. Routine 10b5-1 plan sales are NOT a signal (see insider section).
+- Peer read-through (from news panel readThrough[]): competitive threats, shared-input shocks, and sector events that directly affect this ticker's near-term price. A "competitive" bearish read-through from a dominant peer is a short-term headwind even when the ticker's own long-term thesis is intact.
+
+Do NOT anchor the derivatives direction on: Morningstar fair value estimates, long-horizon P/E or EV multiples, multi-year revenue growth trajectories, or management long-term targets. Those are quality filters for the STOCK sleeve. A stock that is fundamentally sound but technically breaking down with negative flow, bearish insider activity, and a competitive peer threat warrants SELL_CALL_SPREAD (short-term bearish) — not SELL_PUT_SPREAD anchored to a $165 FVE.
+
+derivatives.confidence is scored ONLY on agreement AMONG the short-term signal set above — NEVER on the long-term thesis. This is critical and routinely gets it wrong:
+- Cross-horizon tension (stock sleeve long-term bullish while the short-term signals are bearish, or vice versa) is NOT "panel disagreement" and MUST NOT lower derivatives.confidence. It is the EXPECTED split between a multi-quarter accumulation thesis and a 30-45 DTE fade. A strong long-term bull case does NOT make the short-term bearish read "noisy" or "coin-flip" — the two live on different clocks. Do not average them.
+- The ONLY disagreement that lowers derivatives.confidence is conflict WITHIN the short-term set itself (e.g. priceAction breakdown BUT capital inflow BUT bullish technical regime).
+- When ≥2 of {priceAction breakdown/breakout, technical regime direction, majority sentiment, capital-flow direction} align, the short-term thesis is "independently clean" → derivatives.confidence ≥ 55 → take the aligned-side credit spread, NOT PASS. Example: priceAction breakdown + bearish technical regime + 64% bearish sentiment = three aligned bearish short-term signals → SELL_CALL_SPREAD with derivatives.confidence ≥ 55, even when the stock sleeve is 75% long-term bullish. Selling call premium INTO confirmed near-term weakness is correct; the long-term FVE is irrelevant to the 30-45 DTE bet.
+
+MACRO ENVIRONMENT (payload field: macroEnvironment):
+A live web-search snapshot of the current macro backdrop — Fed/rates, inflation, geopolitical events, and sector flows — fetched at request time. Use it as ambient context that can reinforce or temper the panel signals; weight it at ~10-20% of the directional call. Examples: a Fed hiking cycle or rising energy CPI is a macro headwind that can justify lower derivatives.confidence or a PASS even when individual panels are mixed; a soft-landing/rate-cut environment is a tailwind that can lift the stock sleeve's bullish conviction. Do NOT override clear panel signals with macro alone, and do NOT cite macro as the primary reason for a derivatives action. If macroEnvironment is null, ignore this section entirely.
+
 PASS criteria — apply BEFORE the IV regime / eligibility logic below to skip the sleeve entirely. The derivatives sleeve is NOT obligated to find a trade; "no opinion" is a valid stance and routinely the right one for a conservative book.
 - Conviction < 55 AND the derivatives panel does not cite an IV-HV premium → PASS. At coin-flip conviction with fairly-priced vol, neither credit nor debit has a structural edge.
-- Panels in severe directional disagreement — e.g. capital outflow + bullish technicals + sentiment euphoric, or fundamentals weakening while flow is strong → PASS. Signals too noisy to size a one-sided derivative bet, even a far-OTM credit one.
+- Panels in severe directional disagreement WITHIN THE SHORT-TERM SET — e.g. capital outflow + bullish technicals + sentiment euphoric → PASS. Signals too noisy to size a one-sided derivative bet, even a far-OTM credit one. NOTE: stock-sleeve long-term bullishness conflicting with short-term bearish signals is NOT this case — that is the normal time-horizon split and does NOT justify PASS (see derivatives.confidence scoring above).
 - Direction "neutral" with conviction < 65 AND no IV-HV premium cited → PASS. No thesis to translate into either premium-collection or premium-payment.
 - The rationale MUST name which PASS criterion fired (e.g. "PASS: conviction 52 with derivatives panel IV-HV at parity — no edge in either direction").
 
@@ -293,7 +317,7 @@ The server computes the actual % NAV from sizeContracts + spot + the action's st
 
 ---
 
-Conflict rule: stock-direction and derivatives-direction can disagree only as an explicit hedge (e.g. trim stock + buy puts), and you must explain why in the rationale. Otherwise both sleeves share the directional bias.
+Time-horizon rule: stock-direction and derivatives-direction operate on different timeframes and may legitimately disagree. The stock sleeve reflects multi-week to multi-quarter conviction; the derivatives sleeve reflects the 30-45 DTE window. When they disagree, the rationale MUST name both stances explicitly — e.g. "long-term bullish (stock OPEN for accumulation) but short-term bearish (technical breakdown, insider selling, bearish peer read-through) → SELL_CALL_SPREAD to capture premium during the near-term weakness." Do NOT force alignment between the two sleeves.
 
 rationale (3-5 sentences): cite the panel summaries by name and quote concrete signals (e.g. "capital panel: 4 sessions of major-capital outflow"; "derivatives panel: PCR pct 89, put block trades at 165"; "fundamentals panel: rev +24% YoY, fwd P/E 22 vs sector 30"). No vague adjectives — reference numbers. Tie BOTH sleeve actions back to specific signals. Always include at least one fundamentals reference when the fundamentals panel is non-n/a.
 
@@ -332,6 +356,9 @@ export interface SynthInput {
   // server-computed. Complements the technical panel's anomaly EVENTS with the
   // current STATE (e.g. overbought). Null when the sidecar is unavailable.
   technicalIndicators: TechnicalIndicators | null;
+  // Live macro backdrop from Gemini + Google Search grounding, fetched once on
+  // page load. Ambient context only — do not override panel signals with it.
+  macroContext?: string | null;
   panels: {
     capital: PanelSummary;
     technical: PanelSummary;
@@ -567,6 +594,10 @@ function buildPrompt(input: SynthInput): string {
     // Standing technical-indicator readings (RSI/MACD/Bollinger/SMA distances).
     // See the TECHNICAL INDICATOR STATE section in SYSTEM_INSTRUCTION.
     technicalIndicators: input.technicalIndicators ?? null,
+    // Ambient macro backdrop (live web-search). Treat as a 10-20% weight on the
+    // directional call — reinforces or tempers panel signals, does not override them.
+    // Null when unavailable; ignore if null.
+    macroEnvironment: input.macroContext ?? null,
     panelSummaries: {
       capital: compressPanel(input.panels.capital),
       technical: compressPanel(input.panels.technical),
@@ -600,11 +631,10 @@ function buildPrompt(input: SynthInput): string {
 }
 
 interface RawVerdict {
-  confidence: number;
   rationale: string;
   riskFactor: string;
-  stock: { action: StockAction; direction: SleeveDirection; adjustment: PositionAdjustment };
-  derivatives: { action: DerivativesAction; direction: SleeveDirection; adjustment: PositionAdjustment };
+  stock: { action: StockAction; direction: SleeveDirection; confidence: number; adjustment: PositionAdjustment };
+  derivatives: { action: DerivativesAction; direction: SleeveDirection; confidence: number; adjustment: PositionAdjustment };
 }
 
 // Standard credit-spread width by underlying price (matches contract-picker).
@@ -749,7 +779,7 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
   // risk, no cash gate, lower conviction threshold than debit). Detect that
   // path by the rationale/instruction citing the CSP unfundable signature
   // and route to the directional credit-spread fallback.
-  if (derivAction === "PASS" && raw.confidence >= 55) {
+  if (derivAction === "PASS" && raw.derivatives.confidence >= 55) {
     const combined = `${derivInstr} ${raw.rationale}`.toLowerCase();
     const citesCspGate =
       combined.includes("cspmin") ||
@@ -760,7 +790,7 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
       const fallback: DerivativesAction =
         raw.derivatives.direction === "bearish" ? "SELL_CALL_SPREAD" : "SELL_PUT_SPREAD";
       console.warn(
-        `[synth] LLM picked PASS citing CSP unfundability (cspEligible=false, conviction=${raw.confidence}, ` +
+        `[synth] LLM picked PASS citing CSP unfundability (cspEligible=false, derivConfidence=${raw.derivatives.confidence}, ` +
           `direction=${raw.derivatives.direction}) — overriding to ${fallback}.`,
       );
       derivAction = fallback;
@@ -825,15 +855,16 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
   const stock: SleeveVerdict<StockAction> = {
     action: raw.stock.action,
     direction: raw.stock.direction,
+    confidence: raw.stock.confidence,
     adjustment: { ...raw.stock.adjustment, instruction: stockInstr },
   };
   const derivatives: SleeveVerdict<DerivativesAction> = {
     action: derivAction,
     direction: raw.derivatives.direction,
+    confidence: raw.derivatives.confidence,
     adjustment: { ...raw.derivatives.adjustment, instruction: derivInstrWithFooter },
   };
   return {
-    confidence: raw.confidence,
     rationale: raw.rationale,
     riskFactor: raw.riskFactor,
     stock,

@@ -143,7 +143,7 @@ function legsForJournal(pick: ContractPick): JournalLegInput[] {
 }
 
 function deriveThesis(verdict: Verdict): string {
-  return `${verdict.rationale} (confidence ${verdict.confidence}).`;
+  return `${verdict.rationale} (stock confidence ${verdict.stock.confidence}, derivatives confidence ${verdict.derivatives.confidence}).`;
 }
 
 function deriveMgmtProfit(pick: ContractPick, netCredit: number): string {

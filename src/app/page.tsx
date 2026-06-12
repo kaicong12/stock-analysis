@@ -20,6 +20,7 @@ import { BatchView } from "./components/BatchView";
 import { Hero } from "./components/Hero";
 import { HeldOptionsDetail } from "./components/HeldOptionsDetail";
 import { LeftRail } from "./components/LeftRail";
+import { MacroBriefing } from "./components/MacroBriefing";
 import { Panel, PANEL_LABELS } from "./components/Panel";
 import { ScannerView } from "./components/ScannerView";
 import { SkeletonBlock, Welcome } from "./components/Welcome";
@@ -224,6 +225,36 @@ export default function Page() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("single");
   const [isAskAiOpen, setIsAskAiOpen] = useState(false);
+  const [macroText, setMacroText] = useState<string | null>(null);
+  const [macroStatus, setMacroStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  // Mirror of macroText for runAnalysis to read without taking macroText as a
+  // dependency — keeps runAnalysis identity stable so the URL-hydration effect
+  // doesn't re-fire (and re-run a whole analysis) when macro lands.
+  const macroTextRef = useRef<string | null>(null);
+
+  // Macro briefing — fetched once on mount, cached in sessionStorage for the session.
+  useEffect(() => {
+    const CACHE_KEY = "macro_briefing_v1";
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      macroTextRef.current = cached;
+      setMacroText(cached);
+      setMacroStatus("ready");
+      return;
+    }
+    setMacroStatus("loading");
+    fetch("/api/macro")
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = (await r.json()) as { text?: string };
+        const text = j.text ?? "";
+        sessionStorage.setItem(CACHE_KEY, text);
+        macroTextRef.current = text;
+        setMacroText(text);
+        setMacroStatus("ready");
+      })
+      .catch(() => setMacroStatus("error"));
+  }, []);
 
   // Initial portfolio load (independent of any search) so the rail populates immediately.
   useEffect(() => {
@@ -335,6 +366,7 @@ export default function Page() {
           portfolio: prep.portfolio,
           heldPositions: prep.heldPositions,
           heldGroups: prep.heldGroups,
+          macroContext: macroTextRef.current,
           panels: summaries,
         },
         signal,
@@ -512,6 +544,10 @@ export default function Page() {
             )}
 
             {!state.snapshot && state.status === "idle" && <Welcome />}
+
+            {(macroStatus === "loading" || macroStatus === "ready" || macroStatus === "error") && (
+              <MacroBriefing text={macroText} status={macroStatus} />
+            )}
 
             {state.snapshot && (
               <div className={styles.panelGrid}>
