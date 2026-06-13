@@ -986,40 +986,7 @@
   color: var(--on-surface-variant);
 }
 
-/* Suggested-contract sub-card inside the derivatives sleeve. */
-.contractCard {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--tertiary);
-  border-radius: var(--radius);
-  background: var(--surface-container);
-  margin-top: 4px;
-}
-.contractStrategy {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.contractStrategyLabel {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--tertiary);
-}
-.contractIv {
-  font-size: 11px;
-  color: var(--on-surface-variant);
-}
-.contractLegs {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+/* Option-leg rows (used by HeldOptionsDetail). */
 .contractLeg {
   display: flex;
   align-items: center;
@@ -1027,12 +994,6 @@
   padding: 6px 8px;
   border-radius: var(--radius);
   background: var(--surface-container-low);
-}
-.contractLegPlain {
-  font-size: 12px;
-  color: var(--on-surface-variant);
-  font-style: italic;
-  padding: 6px 8px;
 }
 .legSide {
   font-size: 10.5px;
@@ -1061,31 +1022,6 @@
   color: var(--on-surface-variant);
   letter-spacing: 0.02em;
 }
-.rollSection {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.rollSectionLabel {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--on-surface-variant);
-}
-.contractMetrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.contractRationale {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--on-surface-variant);
-  font-style: italic;
-}
-
 /* Left-rail action button (used by Journal, Calendar, etc.). */
 .railActionBtn {
   display: flex;

@@ -8,6 +8,8 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import styles from "./AskAI.module.css";
 import { streamAssistant, type ChatMessage } from "../../lib/gemini/assistant";
 import { IconCloseX } from "./icons";
@@ -250,11 +252,13 @@ export function AskAI({ ticker, mode, isOpen = true, onClose }: AskAIProps) {
             <div key={i} className={styles.message}>
               <span className={styles.messageLabel}>Assistant</span>
               <div
-                className={`${styles.messageBubble} ${styles.messageAssistant} ${
+                className={`${styles.messageBubble} ${styles.messageAssistant} ${styles.markdown} ${
                   m.errored ? styles.messageError : ""
                 }`}
               >
-                {m.content || (m.streaming ? "" : " ")}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {m.content || (m.streaming ? "" : " ")}
+                </ReactMarkdown>
                 {m.streaming && <span className={styles.cursor} aria-hidden />}
               </div>
               {m.citations && m.citations.length > 0 && (

@@ -490,86 +490,11 @@ export interface PositionAdjustment {
   sizeContracts?: number;
 }
 
-export interface ContractLeg {
-  contract: string;          // moomoo code, e.g. "US.AAPL240517C00175000"
-  description: string;       // human-readable, e.g. "AAPL May 17 '24 175 CALL"
-  side: "C" | "P";
-  strike: number;
-  expiry: string;            // ISO date
-  last: number | null;
-  // Live bid/ask from the chain snapshot. The contract picker's economics use
-  // (bid+ask)/2 as the executable mid — these fields exist so the UI can show
-  // the same mid on the leg row (otherwise `last` can be stale on OTM strikes
-  // and the user sees "$2.20 − $1.29 = $0.91" while the spread credit is $2.10
-  // from the live bid/ask mid).
-  bid: number | null;
-  ask: number | null;
-  iv: number | null;
-  delta: number | null;
-  theta: number | null;
-  vega: number | null;
-  ratio?: number; // +1 for BUY, -1 for SELL in combo packaging
-}
-
-// Roll plan for ROLL_OUT — describes the close-old + open-new package as a
-// single transaction. closingLegs come from the user's held positions (we know
-// their conid + side); openingLegs come from the live chain.
-export interface RollPlan {
-  closingLegs: ContractLeg[];   // existing held legs being bought/sold to close
-  openingLegs: ContractLeg[];   // new legs being opened in the same package
-  closingCost: number;          // total debit to close (positive = pay)
-  openingCredit: number;        // total credit on the new package (positive = receive)
-  netRollCredit: number;        // openingCredit − closingCost; positive = good roll
-  newMaxLoss: number;           // max loss on the new structure
-  newMaxProfit: number;         // max profit on the new structure (incl. net roll credit)
-  newBreakeven: number;
-}
-
-export interface ContractPick {
-  strategy: DerivativesAction;
-  longLeg?: ContractLeg;     // BUY_TO_OPEN — present for new-entry spreads
-  shortLeg?: ContractLeg;    // SELL_TO_OPEN — present for new-entry spreads, covered call, CSP
-  // Iron Condor 4-leg geometry. Present iff strategy === "IRON_CONDOR".
-  longPutLeg?: ContractLeg;
-  shortPutLeg?: ContractLeg;
-  shortCallLeg?: ContractLeg;
-  longCallLeg?: ContractLeg;
-  netDebit?: number;         // for buys (spread cost)
-  netCredit?: number;        // for premium-sells (covered call / CSP income)
-  rollPlan?: RollPlan;       // present iff strategy === "ROLL_OUT"
-  limitPrice: number;        // your fill target on the package (net for spreads/rolls)
-  maxProfit: number;
-  maxLoss: number;
-  breakeven: number;             // legacy single-value field (= breakevenUpper for IC)
-  breakevenLower?: number;       // IC only
-  breakevenUpper?: number;       // IC only
-  suggestedContracts: number;
-  capitalRequired: number;   // total cash/margin for this trade
-  // False when the chain returned no quotes for the picked legs — the dollar
-  // fields above are zeroed, the strikes/expiry are still meaningful, and the
-  // UI should render "—" instead of misleading numbers (chain quotes are the
-  // only honest source for these economics; the LLM cannot infer them).
-  quotesAvailable: boolean;
-  ivPercentileNote: string;  // e.g. "IV pct 78 — selling premium favored"
-  rationale: string;         // 1-2 sentences
-  // Earnings-in-window flags. Server-computed in the picker after the model
-  // has chosen the expiry: did fundamentals carry an earnings date, and does
-  // the chosen expiry land at or after `nextEarningsDate − 2 days` (the
-  // conservative "be out 2 days before earnings" buffer)? The UI surfaces a
-  // warning when straddling; verdict generation may even refuse to recommend
-  // a credit-spread trade in that case.
-  nextEarningsDate?: string | null;     // raw ISO from fundamentals, or null
-  earningsDaysAway?: number | null;     // integer days from today, or null
-  earningsBufferDate?: string | null;   // nextEarningsDate − 2 days (ISO)
-  earningsInWindow?: boolean;           // true = chosen expiry straddles the print
-}
-
 export interface SleeveVerdict<A extends string> {
   action: A;
   direction: SleeveDirection;
   confidence: number;          // conviction for this sleeve (0-100), assessed on its own time horizon
   adjustment: PositionAdjustment;
-  contractPick?: ContractPick;  // derivatives sleeve only, only on new entries
 }
 
 export interface Verdict {
@@ -587,39 +512,6 @@ export interface Verdict {
     fundamentals: PanelSummary;
     insider: PanelSummary;
   };
-}
-
-// ----- Option chain (input to the contract picker) -----
-
-export interface OptionContract {
-  // moomoo option code, e.g. "US.AAPL260610C250000". Used both as a stable id
-  // (Gemini gets handed this and echoes it back to identify legs) and as the
-  // key for moomoo's snapshot endpoint.
-  code: string;
-  side: "C" | "P";
-  strike: number;
-  last: number | null;
-  bid: number | null;
-  ask: number | null;
-  iv: number | null;
-  delta: number | null;
-  gamma: number | null;
-  theta: number | null;
-  vega: number | null;
-  oi: number | null;
-  volume: number | null;
-}
-
-export interface OptionExpiry {
-  expiry: string;       // ISO date
-  dte: number;
-  contracts: OptionContract[];
-}
-
-export interface OptionChain {
-  symbol: string;
-  spot: number;
-  expiries: OptionExpiry[];
 }
 
 export interface DashboardData {

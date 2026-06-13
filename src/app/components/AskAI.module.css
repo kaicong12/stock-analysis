@@ -321,3 +321,56 @@
   flex-direction: column;
 }
 .drawerOpen { transform: translateX(0); }
+
+/* Markdown-rendered assistant replies. The bubble's pre-wrap would double up
+   spacing once markdown introduces real block elements, so reset it here and
+   keep block spacing compact per the dense-terminal layout. */
+.markdown {
+  white-space: normal;
+}
+.markdown p { margin: 0 0 8px; }
+.markdown p:last-child { margin-bottom: 0; }
+.markdown ul, .markdown ol { margin: 0 0 8px; padding-left: 18px; }
+.markdown ul:last-child, .markdown ol:last-child { margin-bottom: 0; }
+.markdown li { margin: 2px 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+.markdown h1:first-child, .markdown h2:first-child, .markdown h3:first-child { margin-top: 0; }
+.markdown strong { font-weight: 600; }
+.markdown code {
+  font-size: 12px;
+  background: var(--surface-container-high);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.markdown pre {
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  overflow-x: auto;
+}
+.markdown pre code { background: none; padding: 0; }
+.markdown table {
+  border-collapse: collapse;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.markdown th, .markdown td {
+  border: 1px solid var(--outline-variant);
+  padding: 4px 8px;
+  text-align: left;
+}
+.markdown th { background: var(--surface-container-high); font-weight: 600; }
+.markdown a { color: var(--primary); text-decoration: underline; }
+.markdown blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--outline-variant);
+  color: var(--on-surface-variant);
+}
+.markdown hr { border: none; border-top: 1px solid var(--outline-variant); margin: 8px 0; }

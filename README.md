@@ -1,6 +1,6 @@
 # stock-analysis
 
-A portfolio-aware stock & options analysis dashboard. Pulls data from IBKR (positions, account summary, trade history), moomoo OpenD (option chain, capital/technical/derivatives anomalies, news, community sentiment, peers), yfinance (fundamentals + daily OHLCV), and Massive — the vendor formerly known as Polygon (SEC Form 4 insider transactions). It runs each slice through a per-skill LLM panel and synthesizes a single dual-sleeve verdict (stock action + derivatives action) sized to the user's actual NAV. When the derivatives sleeve picks a tradeable strategy, a downstream contract picker selects a specific multi-leg order from the live chain.
+A portfolio-aware stock & options analysis dashboard. Pulls data from IBKR (positions, account summary, trade history), moomoo OpenD (option chain, capital/technical/derivatives anomalies, news, community sentiment, peers), yfinance (fundamentals + daily OHLCV), and Massive — the vendor formerly known as Polygon (SEC Form 4 insider transactions). It runs each slice through a per-skill LLM panel and synthesizes a single dual-sleeve verdict (stock action + derivatives action) sized to the user's actual NAV. The app stops at the verdict — strike/expiry selection and order entry happen in IBKR/TWS directly; the journal records the trades after the fact.
 
 The desk is tuned for a **conservative, credit-only options book** (defined-risk premium selling — no naked or debit positions). See `CLAUDE.md` for the full trading profile.
 
@@ -106,7 +106,7 @@ Aggregates retail discussion tone — bullish / bearish / neutral counts, plus t
 
 ## Decision flow
 
-The page orchestrates four routes per ticker analysis. `/api/prep` is the fail-fast gate; the eight panel calls fan out in parallel from the client, then the verdict synthesizes them; the contract picker runs only when the verdict's derivatives action is tradeable. Each step renders into the UI as soon as it resolves — no one big bundled response.
+The page orchestrates three routes per ticker analysis. `/api/prep` is the fail-fast gate; the eight panel calls fan out in parallel from the client, then the verdict synthesizes them. Each step renders into the UI as soon as it resolves — no one big bundled response.
 
 ```mermaid
 flowchart TD
@@ -128,11 +128,7 @@ flowchart TD
 
     S2 --> S3["POST /api/verdict (1 LLM call)<br/>panels + NAV + heldGroups (incl. trigger flags)<br/>+ priceAction + technicalIndicators<br/>→ confidence, rationale, riskFactor,<br/>stock sleeve, derivatives sleeve"]
 
-    S3 --> Q{"derivatives.action tradeable?<br/>SELL_*_SPREAD / SELL_COVERED_CALL /<br/>SELL_CASH_SECURED_PUT /<br/>IRON_CONDOR / ROLL_OUT"}
-    Q -- "no (HOLD/CLOSE/PASS)" --> OUT["Verdict only, no pick"]
-    Q -- yes --> S4["POST /api/contract-pick<br/>moomoo option chain ± window, 20-60 DTE<br/>+ rollHint from heldGroup.suggestion"]
-    S4 --> S5["Picker (1 LLM call)<br/>picks legs by delta, sizes vs NAV<br/>→ ContractPick / RollPlan"]
-    S5 --> OUT2["Verdict + contractPick"]
+    S3 --> OUT["Verdict"]
 ```
 
 **HeldGroup auto-detection** runs server-side in `/api/prep` (and client-side on initial portfolio load) via `src/lib/positions/groups.ts`: legs are bucketed by `(underlying, expiry)` and pattern-matched into `BULL_PUT_SPREAD`, `BEAR_CALL_SPREAD`, `COVERED_CALL`, `CSP`, `LONG_CALL`, etc. Each group then gets `pt50Hit`, `dteUnder21`, `stopBreached` trigger flags (tastytrade defaults: 50% PT, 21 DTE, 2× credit stop on credits / 50% debit stop on debits) plus a rule-based `suggestion` (HOLD / CLOSE / ROLL_OUT / ROLL_OUT_AND_DOWN / ROLL_OUT_AND_UP). The verdict synth reads these as facts and either matches the suggestion or explains its divergence.
@@ -182,15 +178,4 @@ The synth prompt frames the model as the head PM at an institutional desk runnin
 
 11. **Rationale must cite specific numbers from the panels** — no vague adjectives. At least one fundamentals reference is required when the fundamentals panel is non-`n/a`, and any guard/regime/eligibility gate that fired must be named with its numbers.
 
-### How the contract is picked (stage 5)
-
-The picker only fires when the derivatives action is `SELL_PUT_SPREAD`, `SELL_CALL_SPREAD`, `SELL_COVERED_CALL`, `SELL_CASH_SECURED_PUT`, `IRON_CONDOR`, or `ROLL_OUT`. It receives the live **moomoo** option chain (greeks + bid/ask + OI, 20-60 DTE window scaled to the action) and picks legs by **delta**, not by strike:
-
-- **Credit spreads (inc. Iron Condor)**: short leg ~15-20Δ OTM (defensive default); long protective leg sized by stock price; width is conviction-scaled.
-- **Income (Covered Call / CSP)**: single short leg at ~15-20Δ OTM by default; can step tighter if support/resistance aligns.
-- **ROLL_OUT**: close the held legs and open later-expiry replacements for a net credit, widened per the `rollHint` (`OUT` / `OUT_AND_DOWN` / `OUT_AND_UP`).
-- **Earnings discipline**: every credit/roll must pick a `preEarningsSafe` expiry — the user never holds premium through a print. If none exists, the picker surfaces the straddle and the verdict layer flips to PASS.
-- **Profit-take discipline**: credit trades always include a 50%-of-max profit-take target in the rationale ("sell at $2.00, close at $1.00").
-- Liquidity gate skips contracts where bid AND last are null, OI < 50, or (ask − bid) / mid > 0.10. Limit price = midpoint of the package; falls back to last when one side has no quote.
-
-The picker uses **ONLY** contract codes that appear verbatim in the chain payload — it can't invent codes. After the LLM returns its pick, a deterministic `fillLegFromChain` step overwrites the leg's numeric fields (delta, IV, theta, vega) with the chain's actual numbers, so the UI never shows model-hallucinated greeks.
+The flow ends at the verdict. Strike, expiry, and order entry happen in IBKR/TWS directly; the journal's `close-held` flow records trades after the fact.
