@@ -25,11 +25,6 @@ export interface NewsResult {
   items: NewsItem[];
 }
 
-export interface DigestResult {
-  symbol: string;
-  items: NewsItem[];
-}
-
 // Morningstar research report (OpenD get_research_morningstar_report), the News
 // Flow panel's self-signal. Flattened from the SDK's nested {context,...} shape
 // by sidecar.getMorningstar — text fields are plain strings here. `available` is
@@ -443,6 +438,10 @@ export interface PanelSummary {
   bullets: string[];
   direction?: PanelDirection;
   conclusion?: string;
+  // Stock Digest panel only: the web-grounded answer rendered verbatim as
+  // markdown. When present, the panel shows this prose instead of the
+  // headline/conclusion/bullets block. The synth also receives it (full read).
+  prose?: string;
   evidence?: PanelEvidence[];
   meta?: PanelMeta[];
   readThrough?: ReadThrough[];
@@ -523,7 +522,6 @@ export interface DashboardData {
   technical: AnomalyResult | null;
   derivatives: AnomalyResult | null;
   news: NewsResult | null;
-  digest: DigestResult | null;
   sentiment: CommentSentimentResult | null;
   fundamentals: FundamentalsResult | null;
   portfolio: Portfolio | null;

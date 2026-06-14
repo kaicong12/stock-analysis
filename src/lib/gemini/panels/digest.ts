@@ -1,41 +1,72 @@
-// Digest panel. Prompt mirrors the moomoo-stock-digest skill;
-// body lives in src/lib/gemini/panels/prompts/digest.ts.
+// Stock Digest panel. Web-grounded: a single Gemini + Google Search call answers
+// the user's standing short-term-sentiment question (same as the Gemini web app),
+// and the SAME call emits a machine-readable SIGNAL line we parse for direction.
+//
+// The panel renders the model's prose verbatim (PanelSummary.prose, markdown).
+// The parsed SHORT-TERM direction drives the chip and — critically — feeds the
+// synth's derivatives sleeve, which trades the next-month horizon.
 
-import { genJson } from "../client";
-import type { DigestResult, PanelSummary } from "../../types";
-import {
-  EVIDENCE_PROP,
-  baseSchema,
-  compressNews,
-  emptyEvidencePanel,
-  type PanelContext,
-} from "./_shared";
-import { SYSTEM } from "./prompts/digest";
+import { genGrounded } from "../grounded";
+import type { PanelDirection, PanelSummary } from "../../types";
+import { DIRECTION_ENUM, emptyEvidencePanel, type PanelContext } from "./_shared";
+import { SIGNAL_SENTINEL, buildDigestPrompt } from "./prompts/digest";
 
-const SCHEMA = baseSchema(EVIDENCE_PROP, ["evidence"]);
+interface DigestSignal {
+  shortTerm: PanelDirection;
+  shortTermNote: string;
+}
 
-export async function analyzeDigest(
-  input: DigestResult | null,
-  ctx: PanelContext
-): Promise<PanelSummary> {
-  if (!input || input.items.length === 0) {
-    return emptyEvidencePanel("No obvious new stock-specific factors.");
+function coerceDirection(v: unknown): PanelDirection {
+  return typeof v === "string" && (DIRECTION_ENUM as string[]).includes(v)
+    ? (v as PanelDirection)
+    : "neutral";
+}
+
+// Split the grounded text into the user-facing prose and the parsed signal.
+// The model is told to end with `===SIGNAL=== {json}`. We tolerate a missing or
+// malformed signal (prose still renders; direction falls back to neutral).
+function splitSignal(raw: string): { prose: string; signal: DigestSignal | null } {
+  const idx = raw.lastIndexOf(SIGNAL_SENTINEL);
+  if (idx === -1) return { prose: raw, signal: null };
+
+  const prose = raw.slice(0, idx).trim();
+  const tail = raw.slice(idx + SIGNAL_SENTINEL.length);
+  const match = tail.match(/\{[\s\S]*\}/);
+  if (!match) return { prose, signal: null };
+
+  try {
+    const j = JSON.parse(match[0]) as Record<string, unknown>;
+    return {
+      prose,
+      signal: {
+        shortTerm: coerceDirection(j.shortTerm),
+        shortTermNote: typeof j.shortTermNote === "string" ? j.shortTermNote : "",
+      },
+    };
+  } catch {
+    return { prose, signal: null };
   }
-  const items = compressNews(input, 15, Date.now());
-  const prompt = [
-    `Ticker: ${ctx.ticker} (${ctx.symbol}).`,
-    "",
-    "Recent items for the digest:",
-    "```json",
-    JSON.stringify(items, null, 2),
-    "```",
-    "",
-    "Produce the digest panel JSON. Preserve titles and urls EXACTLY from above in evidence[].",
-  ].join("\n");
-  return genJson<PanelSummary>({
-    systemInstruction: SYSTEM,
-    schema: SCHEMA,
-    prompt,
-    temperature: 0.3,
-  });
+}
+
+export async function analyzeDigest(ctx: PanelContext): Promise<PanelSummary> {
+  const { text, citations } = await genGrounded(buildDigestPrompt(ctx.ticker));
+  if (!text) return emptyEvidencePanel("No web-grounded digest available.");
+
+  const { prose, signal } = splitSignal(text);
+
+  // Chip + synth direction = the SHORT-TERM read (derivatives horizon). The
+  // headline carries the crisp short-term note so the compressed synth view has
+  // a one-line bias even though the full prose is also passed through.
+  const direction = signal?.shortTerm ?? "neutral";
+  const headline =
+    signal?.shortTermNote?.trim() ||
+    `${ctx.ticker} — short-term web-grounded digest`;
+
+  return {
+    headline,
+    bullets: [],
+    direction,
+    prose: prose || text,
+    evidence: citations.map((c) => ({ title: c.title, url: c.uri })),
+  };
 }

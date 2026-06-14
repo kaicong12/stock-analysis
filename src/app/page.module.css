@@ -758,6 +758,30 @@
   font-style: italic;
 }
 
+/* Web-grounded Stock Digest: model markdown rendered verbatim. Denser than a
+   chat bubble, tuned to the panel column. */
+.panelProse {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--on-surface-variant);
+}
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 8px; }
+.markdown strong { color: var(--on-surface); font-weight: 600; }
+.markdown ul,
+.markdown ol { margin: 0 0 8px; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.markdown li { line-height: 1.55; }
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--on-surface);
+  margin: 10px 0 6px;
+}
+.markdown a { color: var(--tertiary); text-decoration: underline; text-underline-offset: 2px; }
+
 .metaRow {
   display: flex;
   flex-wrap: wrap;

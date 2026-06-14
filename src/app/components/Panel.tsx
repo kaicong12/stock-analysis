@@ -1,10 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import styles from "../page.module.css";
 import type {
   CommentSentimentResult,
-  DigestResult,
   InsiderFlowItem,
   NewsItem,
   NewsResult,
@@ -34,7 +35,7 @@ export function Panel(props: {
   summary?: PanelSummary;
   raw?: string;
   fallback?: string;
-  news?: NewsResult | DigestResult | null;
+  news?: NewsResult | null;
   feed?: CommentSentimentResult | null;
 }) {
   const summary = props.summary;
@@ -56,16 +57,24 @@ export function Panel(props: {
 
       <div className={styles.panelBody + " scrollbar-slim"}>
         {summary ? (
-          <>
-            <div className={styles.panelHeadline}>{summary.headline}</div>
-            {summary.conclusion && <p className={styles.panelConclusion}>{summary.conclusion}</p>}
-            {summary.bullets.length > 0 && (
-              <ul className={styles.panelBullets}>
-                {summary.bullets.map((b, i) => <li key={i}>{b}</li>)}
-              </ul>
-            )}
-            {meta.length > 0 && <MetaRow meta={meta} />}
-          </>
+          summary.prose ? (
+            // Web-grounded Stock Digest: render the model's answer verbatim as
+            // markdown (links/levels/numbers preserved), like the Ask AI panel.
+            <div className={styles.panelProse + " " + styles.markdown}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary.prose}</ReactMarkdown>
+            </div>
+          ) : (
+            <>
+              <div className={styles.panelHeadline}>{summary.headline}</div>
+              {summary.conclusion && <p className={styles.panelConclusion}>{summary.conclusion}</p>}
+              {summary.bullets.length > 0 && (
+                <ul className={styles.panelBullets}>
+                  {summary.bullets.map((b, i) => <li key={i}>{b}</li>)}
+                </ul>
+              )}
+              {meta.length > 0 && <MetaRow meta={meta} />}
+            </>
+          )
         ) : (
           <div className={styles.panelHeadline} style={{ color: "var(--on-surface-variant)" }}>
             {props.fallback ?? "No synthesis available."}
