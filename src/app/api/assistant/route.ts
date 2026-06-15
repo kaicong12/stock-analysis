@@ -76,7 +76,7 @@ export async function POST(req: Request) {
 
       try {
         const response = await ai.models.generateContentStream({
-          model: env.geminiModel,
+          model: env.geminiGroundedModel,
           contents,
           config: {
             systemInstruction,

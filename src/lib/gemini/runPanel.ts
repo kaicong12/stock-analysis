@@ -1,4 +1,4 @@
-import { collatePeerNews, getStockFeed, newsForDigest } from "../moomoo/httpApi";
+import { collatePeerNews, getStockFeed } from "../moomoo/httpApi";
 import { getAnomaly, getFundamentals, getMorningstar, getPeers, getTechnicalIndicators, getVolSummary } from "../moomoo/sidecar";
 import { getInsiderTransactions } from "../massive/insider";
 import { ticker as toTicker } from "../symbol";
@@ -66,8 +66,9 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
       return { summary: await analyzeNews(report, ctx, peerNews) };
     }
     case "digest": {
-      const data = await newsForDigest(ticker);
-      return { summary: await analyzeDigest(data, ctx) };
+      // Web-grounded (Gemini + Google Search) — no upstream news fetch; the
+      // model browses live. ctx carries the ticker for the standing prompt.
+      return { summary: await analyzeDigest(ctx) };
     }
     case "sentiment": {
       const data = await getStockFeed(ticker);

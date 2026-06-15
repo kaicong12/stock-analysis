@@ -186,6 +186,7 @@ The derivatives direction is determined exclusively by signals that reflect what
 - technicalIndicators: RSI, MACD, Bollinger %B, SMA distances, ADX regime. Current state of momentum and trend structure.
 - Capital flow panel: buying/selling pressure, major-capital flow direction over recent sessions.
 - Community sentiment panel: retail positioning and crowd tone — a contrarian signal when extreme.
+- Stock Digest panel (HIGH WEIGHT for this sleeve): a LIVE web-grounded read of what just happened to the price and the next-month sentiment. Its \`direction\` is specifically the SHORT-TERM (next-month) bias, and its \`prose\` carries the concrete near-term drivers — recent price action, momentum, technical levels, options positioning, and imminent catalysts. Treat it as a primary derivatives-horizon input alongside priceAction and technicalIndicators; when it conflicts with stale panel reads, prefer the digest's fresher live data.
 - Derivatives panel: IV/HV regime, skew, options flow (PCR, block trades, unusual activity).
 - Insider flow (discretionary only): a cluster of open-market discretionary sells by distinct insiders is a short-term bearish signal for the 30-45d window. Routine 10b5-1 plan sales are NOT a signal (see insider section).
 - Peer read-through (from news panel readThrough[]): competitive threats, shared-input shocks, and sector events that directly affect this ticker's near-term price. A "competitive" bearish read-through from a dominant peer is a short-term headwind even when the ticker's own long-term thesis is intact.
@@ -195,7 +196,7 @@ Do NOT anchor the derivatives direction on: Morningstar fair value estimates, lo
 derivatives.confidence is scored ONLY on agreement AMONG the short-term signal set above — NEVER on the long-term thesis. This is critical and routinely gets it wrong:
 - Cross-horizon tension (stock sleeve long-term bullish while the short-term signals are bearish, or vice versa) is NOT "panel disagreement" and MUST NOT lower derivatives.confidence. It is the EXPECTED split between a multi-quarter accumulation thesis and a 30-45 DTE fade. A strong long-term bull case does NOT make the short-term bearish read "noisy" or "coin-flip" — the two live on different clocks. Do not average them.
 - The ONLY disagreement that lowers derivatives.confidence is conflict WITHIN the short-term set itself (e.g. priceAction breakdown BUT capital inflow BUT bullish technical regime).
-- When ≥2 of {priceAction breakdown/breakout, technical regime direction, majority sentiment, capital-flow direction} align, the short-term thesis is "independently clean" → derivatives.confidence ≥ 55 → take the aligned-side credit spread, NOT PASS. Example: priceAction breakdown + bearish technical regime + 64% bearish sentiment = three aligned bearish short-term signals → SELL_CALL_SPREAD with derivatives.confidence ≥ 55, even when the stock sleeve is 75% long-term bullish. Selling call premium INTO confirmed near-term weakness is correct; the long-term FVE is irrelevant to the 30-45 DTE bet.
+- When ≥2 of {priceAction breakdown/breakout, technical regime direction, majority sentiment, capital-flow direction, Stock Digest short-term direction} align, the short-term thesis is "independently clean" → derivatives.confidence ≥ 55 → take the aligned-side credit spread, NOT PASS. Example: priceAction breakdown + bearish technical regime + 64% bearish sentiment = three aligned bearish short-term signals → SELL_CALL_SPREAD with derivatives.confidence ≥ 55, even when the stock sleeve is 75% long-term bullish. Selling call premium INTO confirmed near-term weakness is correct; the long-term FVE is irrelevant to the 30-45 DTE bet.
 
 MACRO ENVIRONMENT (payload field: macroEnvironment):
 A live web-search snapshot of the current macro backdrop — Fed/rates, inflation, geopolitical events, and sector flows — fetched at request time. Use it as ambient context that can reinforce or temper the panel signals; weight it at ~10-20% of the directional call. Examples: a Fed hiking cycle or rising energy CPI is a macro headwind that can justify lower derivatives.confidence or a PASS even when individual panels are mixed; a soft-landing/rate-cut environment is a tailwind that can lift the stock sleeve's bullish conviction. Do NOT override clear panel signals with macro alone, and do NOT cite macro as the primary reason for a derivatives action. If macroEnvironment is null, ignore this section entirely.
@@ -435,6 +436,10 @@ function compressPanel(p: PanelSummary) {
     headline: p.headline,
     conclusion: p.conclusion,
     bullets: p.bullets,
+    // Stock Digest panel: the full web-grounded short-term read. Passed through
+    // verbatim so the synth sees the live price action / near-term catalysts the
+    // derivatives sleeve trades on, not just the compressed direction chip.
+    ...(p.prose ? { prose: p.prose } : {}),
     // Peer read-through reaches the verdict as a risk overlay (news panel only;
     // undefined elsewhere). See the "Peer read-through" clause in SYSTEM_INSTRUCTION.
     ...(p.readThrough && p.readThrough.length > 0 ? { readThrough: p.readThrough } : {}),

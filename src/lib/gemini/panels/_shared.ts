@@ -1,4 +1,4 @@
-import type { CommentSentimentResult, DigestResult, NewsResult, PanelSummary } from "../../types";
+import type { CommentSentimentResult, PanelSummary } from "../../types";
 
 export interface PanelContext {
   ticker: string;
@@ -62,14 +62,6 @@ export function relAge(epochSeconds: number, nowMs: number): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.round(h / 24);
   return `${d}d ago`;
-}
-
-export function compressNews(input: NewsResult | DigestResult, max: number, nowMs: number) {
-  return input.items.slice(0, max).map((i) => ({
-    title: i.title,
-    publishedAgo: relAge(i.publishTime, nowMs),
-    url: i.url,
-  }));
 }
 
 export function compressFeed(input: CommentSentimentResult, max: number, nowMs: number) {
