@@ -1194,6 +1194,138 @@ def _regime(adx: float | None, plus_di: float | None, minus_di: float | None,
     return "strong_downtrend" if strong else "downtrend"
 
 
+def _atr(highs: list[float], lows: list[float], closes: list[float],
+         period: int = 14) -> float | None:
+    """Wilder's ATR(period) at the latest bar — the average true range, used as
+    the clustering tolerance for support/resistance zones (so 'nearby' scales
+    with the stock's own daily range, not a flat %). None if too few bars."""
+    if len(closes) < period + 1:
+        return None
+    trs: list[float] = []
+    for i in range(1, len(closes)):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+        trs.append(tr)
+    atr = sum(trs[:period]) / period
+    for i in range(period, len(trs)):
+        atr = (atr * (period - 1) + trs[i]) / period
+    return atr
+
+
+def _swing_pivots(highs: list[float], lows: list[float], k: int = 3):
+    """Fractal swing pivots. Bar i is a pivot-high if its high is the strict
+    maximum of the 2k+1-bar window centered on it (inverted for pivot-lows). The
+    most recent k bars are unconfirmed (no right-hand window yet) and excluded.
+    Returns (pivot_highs, pivot_lows), each a list of (index, price) ascending by
+    index — the raw swings that S/R clustering and structure detection consume."""
+    n = len(highs)
+    ph: list[tuple[int, float]] = []
+    pl: list[tuple[int, float]] = []
+    for i in range(k, n - k):
+        win_h = highs[i - k:i + k + 1]
+        win_l = lows[i - k:i + k + 1]
+        if highs[i] == max(win_h) and win_h.count(highs[i]) == 1:
+            ph.append((i, highs[i]))
+        if lows[i] == min(win_l) and win_l.count(lows[i]) == 1:
+            pl.append((i, lows[i]))
+    return ph, pl
+
+
+def _cluster_levels(pivots: list[tuple[int, float]], tol: float) -> list[dict]:
+    """Merge pivots whose prices sit within `tol` (absolute, ~1 ATR) into zones.
+    A level retested several times is stronger than a one-off wick, so each zone
+    carries a touch count; its price is the touch-mean, and lastIdx is the most
+    recent touch (for recency weighting). Returns zones ascending by price."""
+    if not pivots or tol <= 0:
+        return []
+    pts = sorted(pivots, key=lambda p: p[1])
+    clusters: list[list[tuple[int, float]]] = [[pts[0]]]
+    for idx, price in pts[1:]:
+        if price - clusters[-1][-1][1] <= tol:
+            clusters[-1].append((idx, price))
+        else:
+            clusters.append([(idx, price)])
+    zones = [
+        {
+            "price": sum(p[1] for p in c) / len(c),
+            "touches": len(c),
+            "lastIdx": max(p[0] for p in c),
+        }
+        for c in clusters
+    ]
+    zones.sort(key=lambda z: z["price"])
+    return zones
+
+
+def _market_structure(closes: list[float], pivot_highs: list[tuple[int, float]],
+                      pivot_lows: list[tuple[int, float]]):
+    """Swing-structure bias plus the latest break. Bias reads the last two pivot
+    highs and lows: higher-high + higher-low = up, lower-high + lower-low = down,
+    otherwise range. A BREAK fires when the latest close clears the most recent
+    confirmed pivot: in the SAME direction as the prior bias it's a BOS (break of
+    structure, continuation); AGAINST it (or out of a range) it's a CHoCH (change
+    of character, the first tell of a reversal). Returns
+    (bias, event, direction, level)."""
+    bias = "range"
+    if len(pivot_highs) >= 2 and len(pivot_lows) >= 2:
+        hh = pivot_highs[-1][1] > pivot_highs[-2][1]
+        hl = pivot_lows[-1][1] > pivot_lows[-2][1]
+        if hh and hl:
+            bias = "up"
+        elif not hh and not hl:
+            bias = "down"
+
+    spot = closes[-1]
+    event, direction, level = "none", "n/a", None
+    last_ph = pivot_highs[-1] if pivot_highs else None
+    last_pl = pivot_lows[-1] if pivot_lows else None
+    if last_ph and spot > last_ph[1]:
+        direction, level = "up", last_ph[1]
+        event = "BOS" if bias == "up" else "CHoCH"
+    elif last_pl and spot < last_pl[1]:
+        direction, level = "down", last_pl[1]
+        event = "BOS" if bias == "down" else "CHoCH"
+    return bias, event, direction, level
+
+
+def _levels(highs: list[float], lows: list[float], closes: list[float]) -> dict:
+    """Assemble the support/resistance + market-structure block from swing pivots.
+    Support/resistance zones are the clustered pivots split by side of spot
+    (nearest first); a former resistance now below price counts as support, so
+    highs and lows are pooled before splitting. All keys are present and null when
+    bars are thin — this rides into /technical/indicators, it must never raise."""
+    out = {
+        "support": None, "resistance": None,
+        "supportLevels": [], "resistanceLevels": [],
+        "structureBias": "n/a", "structureEvent": "none",
+        "structureDirection": "n/a", "structureLevel": None,
+    }
+    if len(closes) < 40:
+        return out
+    spot = closes[-1]
+    atr = _atr(highs, lows, closes, 14)
+    tol = atr if atr and atr > 0 else spot * 0.015
+    ph, pl = _swing_pivots(highs, lows, k=3)
+    zones = _cluster_levels(ph + pl, tol)
+    supports = sorted([z for z in zones if z["price"] < spot],
+                      key=lambda z: -z["price"])   # nearest below first
+    resistances = sorted([z for z in zones if z["price"] > spot],
+                         key=lambda z: z["price"])  # nearest above first
+    bias, event, direction, level = _market_structure(closes, ph, pl)
+    out["support"] = round(supports[0]["price"], 2) if supports else None
+    out["resistance"] = round(resistances[0]["price"], 2) if resistances else None
+    out["supportLevels"] = [round(z["price"], 2) for z in supports[:3]]
+    out["resistanceLevels"] = [round(z["price"], 2) for z in resistances[:3]]
+    out["structureBias"] = bias
+    out["structureEvent"] = event
+    out["structureDirection"] = direction
+    out["structureLevel"] = round(level, 2) if level is not None else None
+    return out
+
+
 @app.get("/technical/indicators")
 def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
     """Current technical-indicator readings (RSI/MACD/Bollinger/SMA distances)
@@ -1216,6 +1348,10 @@ def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
         "ret5d": None, "ret20d": None,
         "adx14": None, "plusDi": None, "minusDi": None,
         "regime": "n/a", "rsiDivergence": "none",
+        "support": None, "resistance": None,
+        "supportLevels": [], "resistanceLevels": [],
+        "structureBias": "n/a", "structureEvent": "none",
+        "structureDirection": "n/a", "structureLevel": None,
     }
     if len(bars) < 15:
         return base
@@ -1246,6 +1382,8 @@ def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
     def rnd(x, d=2):
         return None if x is None else round(x, d)
 
+    levels = _levels(highs, lows, closes)
+
     return {
         "symbol": symbol, "yfTicker": yf_ticker, "spot": rnd(spot), "asOf": bars[-1]["date"],
         "barsUsed": len(bars),
@@ -1261,6 +1399,7 @@ def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
         "ret20d": rnd((spot / closes[-21] - 1) * 100, 1) if len(closes) >= 21 else None,
         "adx14": rnd(adx, 1), "plusDi": rnd(plus_di, 1), "minusDi": rnd(minus_di, 1),
         "regime": regime, "rsiDivergence": divergence,
+        **levels,
     }
 
 

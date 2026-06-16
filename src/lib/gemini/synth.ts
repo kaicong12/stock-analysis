@@ -180,10 +180,16 @@ OVERBOUGHT / OVERSOLD IS A MOMENTUM READING, NOT A REVERSAL SIGNAL. The single m
 
 - When any of these gates is material, CITE the numbers in the rationale (e.g. "technicalIndicators: regime strong_uptrend, adx14 31, rsiDivergence none — RSI 80.7 is momentum not exhaustion, NOT fading with a call spread"; or "regime range, adx14 14, RSI 78 — overbought mean-reverts here, SELL_CALL_SPREAD with the bearish panels").
 
+SUPPORT / RESISTANCE & MARKET STRUCTURE (technicalIndicators fields \`support\`, \`resistance\`, \`supportLevels[]\`, \`resistanceLevels[]\`, \`structureBias\`, \`structureEvent\`, \`structureDirection\`, \`structureLevel\` — server-computed swing-pivot levels; null/"n/a" when thin, then ignore this block). These are deterministic price levels; cite them VERBATIM, never invent your own. They feed BOTH sleeves:
+- DERIVATIVES (strike placement — the core use): the conservative edge is selling defined-risk premium with the SHORT strike on the far side of a real level. A bullish SELL_PUT_SPREAD / CSP wants its short put BELOW \`support\` (the thesis is "price holds support"); a bearish SELL_CALL_SPREAD wants its short call ABOVE \`resistance\` (the thesis is "price stays under resistance"). When spot is jammed right against a level with little room, prefer wider strikes, smaller size, or PASS. The adjustment.instruction must NOT name strike prices (the server appends sizing), but the RATIONALE should justify the side using the level, e.g. "support $182 ≈ 6% below spot gives the bull-put short-strike room".
+- DERIVATIVES (directional override): this is the "real technical support/resistance" the directional-override rule in the desk checklist refers to — a clean level the short strike sits beyond can justify a marginal-IV credit (IVR 30-50) when conviction ≥ 75. \`structureEvent\`: a CHoCH (change of character) is the EARLIEST reversal tell — CHoCH up through \`structureLevel\` warns against fresh bear-call premium; CHoCH down warns against bull-put / CSP (it overlaps and reinforces the priceAction breakdown guard — this user's signature mistake). A BOS continues the prevailing \`structureBias\`: trade WITH it, not against.
+- STOCK SLEEVE (accumulation/trim): treat \`support\`/\`supportLevels\` as preferred accumulation zones for OPEN/INCREASE and \`resistance\` as where to TRIM into strength; \`structureBias\` is the multi-week trend skeleton (up = higher-highs/higher-lows). A CHoCH down is an early caution flag on a long-term-bullish name (tighten, don't necessarily flip).
+- When a level materially shapes the action, CITE it (e.g. "structureBias up, last BOS up through $204 — accumulation thesis intact; bull-put short strike below support $188").
+
 DERIVATIVES DIRECTION — SHORT-TERM SIGNAL SET (30-45 DTE window only):
 The derivatives direction is determined exclusively by signals that reflect what the stock is likely to do over the next 30-45 days. Use ONLY these inputs for the derivatives directional call:
 - priceAction: server-computed breakdown/breakout signal and its reasons. This is the strongest short-term read.
-- technicalIndicators: RSI, MACD, Bollinger %B, SMA distances, ADX regime. Current state of momentum and trend structure.
+- technicalIndicators: RSI, MACD, Bollinger %B, SMA distances, ADX regime, AND swing support/resistance levels + market structure (structureBias / structureEvent). Current state of momentum, trend structure, and the price levels that bound the 30-45d move (see the SUPPORT / RESISTANCE & MARKET STRUCTURE block above).
 - Capital flow panel: buying/selling pressure, major-capital flow direction over recent sessions.
 - Community sentiment panel: retail positioning and crowd tone — a contrarian signal when extreme.
 - Stock Digest panel (HIGH WEIGHT for this sleeve): a LIVE web-grounded read of what just happened to the price and the next-month sentiment. Its \`direction\` is specifically the SHORT-TERM (next-month) bias, and its \`prose\` carries the concrete near-term drivers — recent price action, momentum, technical levels, options positioning, and imminent catalysts. Treat it as a primary derivatives-horizon input alongside priceAction and technicalIndicators; when it conflicts with stale panel reads, prefer the digest's fresher live data.
@@ -873,5 +879,8 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
     riskFactor: raw.riskFactor,
     stock,
     derivatives,
+    // Echo the standing technical state back so the client can display the
+    // support/resistance/structure levels that fed this verdict.
+    technicalIndicators: input.technicalIndicators ?? null,
   };
 }

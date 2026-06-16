@@ -28,6 +28,8 @@ function indicatorBlock(t: TechnicalIndicators): string {
     `  52w high $${n(t.high52w)} (${pct(t.pctOff52wHigh)} off), 52w low $${n(t.low52w)}`,
     `  return 5d ${pct(t.ret5d)}, 20d ${pct(t.ret20d)}`,
     `  regime: ${t.regime ?? "n/a"} (ADX14 ${n(t.adx14, 1)}, +DI ${n(t.plusDi, 1)} / -DI ${n(t.minusDi, 1)}), RSI divergence: ${t.rsiDivergence ?? "none"}`,
+    `  support ${t.support == null ? "n/a" : `$${n(t.support)}`}${t.supportLevels?.length ? ` [${t.supportLevels.map((x) => `$${x.toFixed(2)}`).join(", ")}]` : ""}, resistance ${t.resistance == null ? "n/a" : `$${n(t.resistance)}`}${t.resistanceLevels?.length ? ` [${t.resistanceLevels.map((x) => `$${x.toFixed(2)}`).join(", ")}]` : ""}`,
+    `  market structure: ${t.structureBias ?? "n/a"}${t.structureEvent && t.structureEvent !== "none" ? ` — latest ${t.structureEvent} ${t.structureDirection} through $${n(t.structureLevel)}` : " — no recent break"}`,
   ].join("\n");
 }
 

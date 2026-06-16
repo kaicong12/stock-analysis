@@ -187,7 +187,26 @@ export interface TechnicalIndicators {
   minusDi: number | null;            // -DI at the latest bar (down-pressure)
   regime: TrendRegime;               // ADX+DI+SMA-stack trend classification
   rsiDivergence: RsiDivergence;      // regular RSI/price divergence (exhaustion tell)
+  // Swing-pivot support/resistance + market structure (server-computed from the
+  // same daily OHLCV). Levels are clustered pivots split by side of spot, nearest
+  // first. Drive credit-spread strike placement: sell put spreads BELOW support,
+  // call spreads ABOVE resistance. All null/"n/a" when bars are thin (<40).
+  support: number | null;            // nearest support zone below spot
+  resistance: number | null;         // nearest resistance zone above spot
+  supportLevels: number[];           // up to 3 support zones, nearest below first
+  resistanceLevels: number[];        // up to 3 resistance zones, nearest above first
+  structureBias: StructureBias;      // swing structure: up | down | range | n/a
+  structureEvent: StructureEvent;    // latest break: BOS | CHoCH | none
+  structureDirection: SwingDirection; // direction of the break: up | down | n/a
+  structureLevel: number | null;     // the swing level that was broken
 }
+
+// Swing market-structure classification. "BOS" (break of structure) = a break
+// that CONTINUES the prevailing swing trend; "CHoCH" (change of character) = the
+// first break AGAINST it (or out of a range) — the earliest reversal tell.
+export type StructureBias = "up" | "down" | "range" | "n/a";
+export type StructureEvent = "BOS" | "CHoCH" | "none";
+export type SwingDirection = "up" | "down" | "n/a";
 
 // Fundamentals from yfinance (via python sidecar). All numeric fields are
 // nullable — yfinance returns sparse data for non-US listings, ETFs, and
@@ -501,6 +520,11 @@ export interface Verdict {
   riskFactor: string;          // single biggest invalidator
   stock: SleeveVerdict<StockAction>;
   derivatives: SleeveVerdict<DerivativesAction>;
+  // The server-computed standing technical state that fed BOTH sleeves of this
+  // verdict (RSI/MACD/SMA distances + swing support/resistance + structure).
+  // Surfaced to the client so the UI can display the levels under the ticker.
+  // Optional/null: absent on thin data or stale cached verdicts.
+  technicalIndicators?: TechnicalIndicators | null;
   panels: {
     capital: PanelSummary;
     technical: PanelSummary;
