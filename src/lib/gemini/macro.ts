@@ -2,9 +2,13 @@ import { GoogleGenAI } from "@google/genai";
 import { env } from "../env";
 
 const PROMPT =
-  "Browse the web and tell me what are some significant things which happened over the past month that has moved the market? " +
-  "Focus on: Fed/rates decisions, inflation data (CPI/PPI), major earnings reactions, geopolitical events affecting oil/commodities, " +
-  "and any large sector rotations. Be concise — lead with the most market-moving facts. Use bullet points per theme.";
+  "Browse the web and give me the CURRENT macro backdrop plus the upcoming macro calendar for the next ~60 days. " +
+  "Two short sections:\n" +
+  "(1) Current regime — the Fed/rate stance, the latest inflation trend (CPI/PPI/PCE), and the single dominant market risk right now. " +
+  "This is standing state, not a recap of past events.\n" +
+  "(2) Upcoming scheduled events (next ~60 days), each WITH ITS DATE — FOMC meetings, CPI/PPI releases, Non-Farm Payrolls, GDP prints, " +
+  "PCE, and any other major known macro catalysts. Lead with the nearest dated events.\n" +
+  "Be concise — bullet points per item. Do NOT recap past events that are already priced in.";
 
 // The macro backdrop moves slowly (daily-ish), so we fetch it AT MOST once per
 // this window across the entire server process. Bump down if you want fresher

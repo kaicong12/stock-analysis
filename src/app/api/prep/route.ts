@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
-import { getSnapshot } from "../../../lib/moomoo/sidecar";
+import { getFundamentals, getSnapshot } from "../../../lib/moomoo/sidecar";
 import { prepareSharedPortfolio, prepareTickerSubset } from "../../../lib/positions/prepare";
 import { normalizeSymbol, ticker as toTicker } from "../../../lib/symbol";
+import { daysUntilISO } from "../../../lib/date";
 import type { HeldGroup, Portfolio, Position, SnapshotResult } from "../../../lib/types";
 
 export const runtime = "nodejs";
@@ -20,6 +21,10 @@ interface PrepResponse {
   heldPositions: Position[];
   heldGroups: HeldGroup[];
   errors: { source: string; message: string }[];
+  // Cheap earnings pre-flight (yfinance, no Gemini) so the UI can warn BEFORE
+  // spending the panel calls. null when unavailable — the gate just won't fire.
+  nextEarningsDate: string | null;
+  earningsDaysAway: number | null;
 }
 
 export async function POST(request: NextRequest) {
@@ -58,6 +63,16 @@ export async function POST(request: NextRequest) {
   const shared = await prepareSharedPortfolio();
   const subset = await prepareTickerSubset(shared, tk);
 
+  // Earnings pre-flight: cheap yfinance read (no Gemini). A failure here must
+  // never block prep — fall back to null so the gate simply doesn't fire.
+  let nextEarningsDate: string | null = null;
+  try {
+    const fundamentals = await getFundamentals(symbol);
+    nextEarningsDate = fundamentals.data?.nextEarningsDate ?? null;
+  } catch (e) {
+    console.error("[prep] earnings pre-flight failed:", (e as Error).message);
+  }
+
   const payload: PrepResponse = {
     ticker: tk,
     symbol,
@@ -66,6 +81,8 @@ export async function POST(request: NextRequest) {
     heldPositions: subset.heldPositions,
     heldGroups: subset.heldGroups,
     errors: [...shared.errors, ...subset.errors],
+    nextEarningsDate,
+    earningsDaysAway: daysUntilISO(nextEarningsDate),
   };
   return Response.json(payload);
 }

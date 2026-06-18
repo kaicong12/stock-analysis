@@ -11,15 +11,49 @@ import type { PanelDirection, PanelSummary } from "../../types";
 import { DIRECTION_ENUM, emptyEvidencePanel, type PanelContext } from "./_shared";
 import { SIGNAL_SENTINEL, buildDigestPrompt } from "./prompts/digest";
 
+interface DigestCatalyst {
+  event: string | null;
+  date: string | null;
+  confirmed: boolean;
+  impact: "bullish" | "bearish" | "uncertain";
+}
+
 interface DigestSignal {
   shortTerm: PanelDirection;
   shortTermNote: string;
+  catalysts: DigestCatalyst[];
 }
 
 function coerceDirection(v: unknown): PanelDirection {
   return typeof v === "string" && (DIRECTION_ENUM as string[]).includes(v)
     ? (v as PanelDirection)
     : "neutral";
+}
+
+function coerceCatalyst(v: unknown): DigestCatalyst | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const event = typeof o.event === "string" && o.event.trim() ? o.event.trim() : null;
+  if (!event) return null; // no material catalyst — leave it null
+  const impact =
+    o.impact === "bullish" || o.impact === "bearish" ? o.impact : "uncertain";
+  return {
+    event,
+    date: typeof o.date === "string" && o.date.trim() ? o.date.trim() : null,
+    confirmed: o.confirmed === true,
+    impact,
+  };
+}
+
+// One-line catalyst tag for the headline (the chip + the synth's compressed view).
+// Leads with the nearest catalyst and notes how many more follow; the full
+// "Upcoming catalysts" list still renders from prose.
+function catalystTag(catalysts: DigestCatalyst[]): string {
+  const [next, ...rest] = catalysts;
+  const when = next.date ? ` ${next.date}` : "";
+  const status = next.confirmed ? "confirmed" : "est.";
+  const more = rest.length > 0 ? ` +${rest.length} more` : "";
+  return `Next catalyst: ${next.event}${when} (${status}, ${next.impact})${more}`;
 }
 
 // Split the grounded text into the user-facing prose and the parsed signal.
@@ -41,6 +75,9 @@ function splitSignal(raw: string): { prose: string; signal: DigestSignal | null 
       signal: {
         shortTerm: coerceDirection(j.shortTerm),
         shortTermNote: typeof j.shortTermNote === "string" ? j.shortTermNote : "",
+        catalysts: Array.isArray(j.catalysts)
+          ? j.catalysts.map(coerceCatalyst).filter((c): c is DigestCatalyst => c !== null)
+          : [],
       },
     };
   } catch {
@@ -58,9 +95,13 @@ export async function analyzeDigest(ctx: PanelContext): Promise<PanelSummary> {
   // headline carries the crisp short-term note so the compressed synth view has
   // a one-line bias even though the full prose is also passed through.
   const direction = signal?.shortTerm ?? "neutral";
-  const headline =
+  const note =
     signal?.shortTermNote?.trim() ||
     `${ctx.ticker} — short-term web-grounded digest`;
+  // Append a one-line catalyst tag so the chip + the synth's compressed view carry
+  // the nearest binary event crisply; the full "Upcoming catalysts" list is in prose.
+  const headline =
+    signal?.catalysts?.length ? `${note} · ${catalystTag(signal.catalysts)}` : note;
 
   return {
     headline,

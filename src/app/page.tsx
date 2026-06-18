@@ -39,6 +39,24 @@ import {
 type PanelKey = keyof Verdict["panels"];
 const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "derivatives", "sentiment", "digest", "news", "insider"];
 
+// Earnings within this many days (inclusive) triggers the pre-search confirm
+// gate — matches the conservative "no binary events in the 30-45 DTE expiry
+// window" rule. The user can still continue past it.
+const EARNINGS_GATE_DAYS = 45;
+
+// Shape returned by /api/prep — the post-prep payload reused by the panel run.
+type PrepPayload = {
+  ticker: string;
+  symbol: string;
+  snapshot: SnapshotResult;
+  portfolio: Portfolio | null;
+  heldPositions: Position[];
+  heldGroups: HeldGroup[];
+  errors: State["errors"];
+  nextEarningsDate: string | null;
+  earningsDaysAway: number | null;
+};
+
 interface PanelState {
   status: "idle" | "loading" | "ready" | "error";
   summary?: PanelSummary;
@@ -49,7 +67,7 @@ interface State {
   ticker: string;
   symbol: string;
   tickerInput: string;
-  status: "idle" | "prepping" | "panels" | "verdict" | "done" | "error";
+  status: "idle" | "prepping" | "earnings_gate" | "panels" | "verdict" | "done" | "error";
   topError: string | null;
   errors: { source: string; message: string }[];
   snapshot: SnapshotResult | null;
@@ -58,13 +76,18 @@ interface State {
   heldGroups: HeldGroup[];
   panels: Record<PanelKey, PanelState>;
   verdict: Verdict | null;
+  // Earnings pre-flight (from /api/prep). Drives the confirm gate.
+  earningsDaysAway: number | null;
+  nextEarningsDate: string | null;
 }
 
 type Action =
   | { type: "set_input"; v: string }
   | { type: "submit_start"; ticker: string }
   | { type: "submit_error"; message: string }
-  | { type: "prep_done"; payload: { ticker: string; symbol: string; snapshot: SnapshotResult; portfolio: Portfolio | null; heldPositions: Position[]; heldGroups: HeldGroup[]; errors: State["errors"] } }
+  | { type: "reset" }
+  | { type: "earnings_gate"; payload: PrepPayload }
+  | { type: "prep_done"; payload: PrepPayload }
   | { type: "panel_loading"; name: PanelKey }
   | { type: "panel_done"; name: PanelKey; summary: PanelSummary; error?: string }
   | { type: "verdict_loading" }
@@ -91,6 +114,8 @@ const INITIAL: State = {
   heldGroups: [],
   panels: emptyPanels,
   verdict: null,
+  earningsDaysAway: null,
+  nextEarningsDate: null,
 };
 
 function reducer(state: State, a: Action): State {
@@ -108,6 +133,25 @@ function reducer(state: State, a: Action): State {
       };
     case "submit_error":
       return { ...state, status: "error", topError: a.message };
+    case "reset":
+      // Back to a clean idle slate, but keep the loaded portfolio/rail.
+      return { ...INITIAL, portfolio: state.portfolio, heldGroups: state.heldGroups };
+    case "earnings_gate":
+      // Earnings near — pause BEFORE the panel calls. Snapshot/portfolio are
+      // shown (so the Hero renders) but panels stay idle until the user confirms.
+      return {
+        ...state,
+        status: "earnings_gate",
+        ticker: a.payload.ticker,
+        symbol: a.payload.symbol,
+        snapshot: a.payload.snapshot,
+        portfolio: a.payload.portfolio ?? state.portfolio,
+        heldPositions: a.payload.heldPositions,
+        heldGroups: a.payload.heldGroups,
+        errors: a.payload.errors,
+        earningsDaysAway: a.payload.earningsDaysAway,
+        nextEarningsDate: a.payload.nextEarningsDate,
+      };
     case "prep_done":
       return {
         ...state,
@@ -119,6 +163,8 @@ function reducer(state: State, a: Action): State {
         heldPositions: a.payload.heldPositions,
         heldGroups: a.payload.heldGroups,
         errors: a.payload.errors,
+        earningsDaysAway: a.payload.earningsDaysAway,
+        nextEarningsDate: a.payload.nextEarningsDate,
         panels: PANELS.reduce(
           (acc, k) => { acc[k] = { status: "loading" }; return acc; },
           {} as Record<PanelKey, PanelState>,
@@ -192,6 +238,9 @@ async function postJson<T>(url: string, body: unknown, signal: AbortSignal): Pro
 export default function Page() {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const abortRef = useRef<AbortController | null>(null);
+  // Holds the prep result + its abort signal while the earnings gate is open, so
+  // "Continue anyway" can resume straight into the panel run without re-prepping.
+  const pendingPrepRef = useRef<{ prep: PrepPayload; signal: AbortSignal } | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("single");
   const [isAskAiOpen, setIsAskAiOpen] = useState(false);
@@ -203,9 +252,13 @@ export default function Page() {
   const macroTextRef = useRef<string | null>(null);
 
   // Macro briefing — fetched once on mount, cached in sessionStorage for the session.
+  // The synchronous cache read is intentionally client-only (lazy useState init
+  // would risk an SSR hydration mismatch), so the set-state-in-effect rule is
+  // disabled narrowly for the mount-time hydration branch below.
   useEffect(() => {
     const CACHE_KEY = "macro_briefing_v1";
     const cached = sessionStorage.getItem(CACHE_KEY);
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (cached) {
       macroTextRef.current = cached;
       setMacroText(cached);
@@ -213,6 +266,7 @@ export default function Page() {
       return;
     }
     setMacroStatus("loading");
+    /* eslint-enable react-hooks/set-state-in-effect */
     fetch("/api/macro")
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -264,38 +318,9 @@ export default function Page() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  const runAnalysis = useCallback(async (rawTicker: string, opts?: { allowCache?: boolean }) => {
-    const t = rawTicker.trim();
-    if (!t) return;
-
-    // Cache hit is opt-in so the Single search bar always refetches; only the
-    // URL-ticker hydration on mount sets allowCache=true.
-    if (opts?.allowCache) {
-      const cached = loadBatchResult(t);
-      if (cached) {
-        abortRef.current?.abort();
-        abortRef.current = null;
-        dispatch({ type: "hydrate_from_cache", payload: cached });
-        return;
-      }
-    }
-
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    const signal = abortRef.current.signal;
-
-    dispatch({ type: "submit_start", ticker: t });
-
-    let prep: Awaited<ReturnType<typeof postJson<{ ticker: string; symbol: string; snapshot: SnapshotResult; portfolio: Portfolio | null; heldPositions: Position[]; heldGroups: HeldGroup[]; errors: State["errors"] }>>>;
-    try {
-      prep = await postJson("/api/prep", { ticker: t }, signal);
-    } catch (err) {
-      if ((err as Error).name === "AbortError") return;
-      dispatch({ type: "submit_error", message: (err as Error).message });
-      return;
-    }
-    dispatch({ type: "prep_done", payload: prep });
-
+  // The expensive half: 8 panel Gemini calls + the synth verdict. Split out of
+  // runAnalysis so the earnings gate can defer it until the user confirms.
+  const runPanelsAndVerdict = useCallback(async (prep: PrepPayload, signal: AbortSignal) => {
     const panelResults = await Promise.allSettled(
       PANELS.map(async (name) => {
         const r = await postJson<{ name: PanelKey; summary: PanelSummary; error?: string }>(
@@ -341,6 +366,68 @@ export default function Page() {
       return;
     }
     dispatch({ type: "verdict_done", verdict: { ...verdictRes.verdict, panels: { ...summaries } } });
+  }, []);
+
+  const runAnalysis = useCallback(async (rawTicker: string, opts?: { allowCache?: boolean }) => {
+    const t = rawTicker.trim();
+    if (!t) return;
+
+    // Cache hit is opt-in so the Single search bar always refetches; only the
+    // URL-ticker hydration on mount sets allowCache=true.
+    if (opts?.allowCache) {
+      const cached = loadBatchResult(t);
+      if (cached) {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        dispatch({ type: "hydrate_from_cache", payload: cached });
+        return;
+      }
+    }
+
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+
+    dispatch({ type: "submit_start", ticker: t });
+
+    let prep: PrepPayload;
+    try {
+      prep = await postJson("/api/prep", { ticker: t }, signal);
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      dispatch({ type: "submit_error", message: (err as Error).message });
+      return;
+    }
+
+    // Earnings-first gate: if a print lands inside the expiry window, pause and
+    // let the user decide BEFORE spending the panel calls. Stash prep so
+    // "Continue anyway" resumes without re-prepping.
+    const dte = prep.earningsDaysAway;
+    if (dte != null && dte >= 0 && dte <= EARNINGS_GATE_DAYS) {
+      pendingPrepRef.current = { prep, signal };
+      dispatch({ type: "earnings_gate", payload: prep });
+      return;
+    }
+
+    dispatch({ type: "prep_done", payload: prep });
+    await runPanelsAndVerdict(prep, signal);
+  }, [runPanelsAndVerdict]);
+
+  // "Continue anyway" from the earnings gate — resume the deferred panel run.
+  const continueFromGate = useCallback(() => {
+    const pending = pendingPrepRef.current;
+    if (!pending || pending.signal.aborted) return;
+    pendingPrepRef.current = null;
+    dispatch({ type: "prep_done", payload: pending.prep });
+    void runPanelsAndVerdict(pending.prep, pending.signal);
+  }, [runPanelsAndVerdict]);
+
+  // "Cancel" from the earnings gate — abort and return to idle.
+  const cancelGate = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    pendingPrepRef.current = null;
+    dispatch({ type: "reset" });
   }, []);
 
   const onSubmit = useCallback(
@@ -394,7 +481,7 @@ export default function Page() {
         ticker={state.tickerInput}
         setTicker={(v) => dispatch({ type: "set_input", v })}
         onSubmit={onSubmit}
-        loading={state.status !== "idle" && state.status !== "done" && state.status !== "error"}
+        loading={state.status !== "idle" && state.status !== "done" && state.status !== "error" && state.status !== "earnings_gate"}
         authStatus={authStatus}
         activeTab={activeTab}
         onTabChange={changeTab}
@@ -444,6 +531,33 @@ export default function Page() {
 
             {state.status === "prepping" && <SkeletonBlock />}
 
+            {state.status === "earnings_gate" && (
+              <div className={styles.earningsGate}>
+                <div className={styles.earningsGateHead}>
+                  <span aria-hidden>⚠︎</span>
+                  <span>
+                    Earnings {state.earningsDaysAway === 0
+                      ? "today"
+                      : `in ${state.earningsDaysAway} day${state.earningsDaysAway === 1 ? "" : "s"}`}
+                    {state.nextEarningsDate ? ` (${state.nextEarningsDate})` : ""} for {state.ticker}
+                  </span>
+                </div>
+                <div className={styles.earningsGateBody}>
+                  This print lands inside the {EARNINGS_GATE_DAYS}-day expiry window. Per your conservative
+                  rule, a binary event in the window argues against opening new premium — so the AI panels
+                  haven&rsquo;t run yet. Continue the full analysis anyway?
+                </div>
+                <div className={styles.earningsGateActions}>
+                  <button type="button" className={styles.btnPrimary} onClick={continueFromGate}>
+                    Continue anyway
+                  </button>
+                  <button type="button" className={styles.btnGhost} onClick={cancelGate}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {state.heldGroups.some((g) => g.underlying === state.ticker.toUpperCase() && g.kind !== "STOCK") && (
               <HeldOptionsDetail
                 groups={state.heldGroups.filter((g) => g.underlying === state.ticker.toUpperCase())}
@@ -478,7 +592,7 @@ export default function Page() {
               <MacroBriefing text={macroText} status={macroStatus} />
             )}
 
-            {state.snapshot && (
+            {state.snapshot && state.status !== "earnings_gate" && (
               <div className={styles.panelGrid}>
                 {PANELS.map((name) => {
                   const ps = state.panels[name];
