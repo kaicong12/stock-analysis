@@ -679,6 +679,33 @@
   gap: 4px;
 }
 
+.earningsGate {
+  background: var(--neutral-dim);
+  border: 1px solid var(--neutral);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.earningsGateHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--neutral);
+  font-weight: 600;
+  font-size: 13px;
+}
+.earningsGateBody {
+  color: var(--on-surface-variant);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.earningsGateActions {
+  display: flex;
+  gap: 8px;
+}
+
 .skeleton {
   background: linear-gradient(90deg, var(--surface-container) 0%, var(--surface-container-high) 50%, var(--surface-container) 100%);
   background-size: 200% 100%;

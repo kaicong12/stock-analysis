@@ -3,6 +3,7 @@
 // balance sheet, analyst view, earnings calendar).
 
 import { genJson } from "../client";
+import { daysUntilISO } from "../../date";
 import type { FundamentalsResult, PanelSummary } from "../../types";
 import {
   META_PROP,
@@ -21,14 +22,6 @@ function compactData(data: FundamentalsResult["data"]): Record<string, unknown> 
     if (v !== null && v !== undefined) out[k] = v;
   }
   return out;
-}
-
-function daysUntilISO(iso: string | null): number | null {
-  if (!iso) return null;
-  const m = /(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return null;
-  const target = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return Math.round((target - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
 export async function analyzeFundamentals(
