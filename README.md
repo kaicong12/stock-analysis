@@ -33,7 +33,7 @@ Set in `.env.local` (Next app) — see `src/lib/env.ts`:
 
 - **IBKR Client Portal** — live positions, account summary, ledger (`src/lib/ibkr/client.ts`); **Flex Web Service** for historical trade sync feeding the P&L calendar (`src/lib/ibkr/flex.ts`).
 - **moomoo OpenD** — option chain (Lv1 greeks/quotes), the three anomaly feeds (capital/technical/derivatives), news, digest, community feed, and peer graph. Reached via the python sidecar and `src/lib/moomoo/httpApi.ts`.
-- **yfinance (via sidecar)** — fundamentals plus daily OHLCV (cached in SQLite). The OHLCV is what powers the **deterministic, server-computed** layers: technical indicators, the IV/HV vol summary, and the price-action signal. These are computed in Python and cited verbatim — never inferred by the LLM.
+- **yfinance (via sidecar)** — fundamentals (incl. next-earnings and ex-dividend dates) plus daily OHLCV (cached in SQLite). The OHLCV is what powers the **deterministic, server-computed** layers: technical indicators, the IV/HV vol summary (and the 1-SD expected move derived from its ATM IV), and the price-action signal. These are computed in Python/TS and cited verbatim — never inferred by the LLM.
 - **Massive (ex-Polygon)** — SEC Form 4 insider buys/sells (`src/lib/massive/insider.ts`).
 
 LLM calls go through OpenRouter's `/chat/completions` (`src/lib/gemini/client.ts`); the `src/lib/gemini/` directory name is historical.
@@ -48,7 +48,7 @@ Each panel is a structured analyst read on one slice of the picture. The eight p
 
 Source: yfinance via `/fundamentals` on the python sidecar.
 
-Reads the long-horizon "is this a quality company" view. Categories cited in bullets: **[Valuation]** (P/E trailing & forward, PEG, P/B, P/S), **[Growth]** (revenue YoY, earnings YoY, earnings QoQ — flags decelerating growth even when absolute numbers still beat), **[Profitability]** (profit margins, operating margins, ROE; flags negative margins and FCF burn), **[Balance sheet]** (debt-to-equity, free cash flow, total cash, current ratio), **[Analyst view]** (recommendationKey, target mean price vs current — % upside/downside, number of analyst opinions), **[Calendar]** (next earnings date — flagged if within ~10 days because IV will crush after the print).
+Reads the long-horizon "is this a quality company" view. Categories cited in bullets: **[Valuation]** (P/E trailing & forward, PEG, P/B, P/S), **[Growth]** (revenue YoY, earnings YoY, earnings QoQ — flags decelerating growth even when absolute numbers still beat), **[Profitability]** (profit margins, operating margins, ROE; flags negative margins and FCF burn), **[Balance sheet]** (debt-to-equity, free cash flow, total cash, current ratio), **[Analyst view]** (recommendationKey, target mean price vs current — % upside/downside, number of analyst opinions), **[Calendar]** (next earnings date — flagged if within ~10 days because IV will crush after the print; plus the ex-dividend date when within ~30 days, which the verdict uses to flag early-assignment risk on short calls).
 
 Meta row (4 stats): forward P/E, revenue YoY, profit margin, next earnings date.
 
@@ -126,7 +126,7 @@ flowchart TD
         P8[Insider]
     end
 
-    S2 --> S3["POST /api/verdict (1 LLM call)<br/>panels + NAV + heldGroups (incl. trigger flags)<br/>+ priceAction + technicalIndicators<br/>→ confidence, rationale, riskFactor,<br/>stock sleeve, derivatives sleeve"]
+    S2 --> S3["POST /api/verdict (1 LLM call)<br/>panels + NAV + heldGroups (incl. trigger flags)<br/>+ priceAction + technicalIndicators + expectedMove<br/>→ confidence, rationale, riskFactor,<br/>stock sleeve, derivatives sleeve"]
 
     S3 --> OUT["Verdict"]
 ```
@@ -172,7 +172,9 @@ The synth prompt frames the model as the head PM at an institutional desk runnin
    - `INCREASE / TRIM / HOLD / CLOSE` on the derivatives sleeve requires at least one existing OPT leg on this ticker; when multiple legs exist, the instruction must name which leg the action targets.
    - Options DTE: ~30-45 for new entries; income trades can extend to 45-60 for richer theta.
 
-9. **Probability of Profit (POP) discipline**: credit spreads / income (short vega) target 65-80% POP and are the default at moderate conviction. The rationale must mention the POP regime (e.g. "CSP at 30Δ ≈ 70% POP").
+9. **Expected move & strike placement** (reads the server-computed `expectedMove` block — the 1-SD implied range `spot × atmIv × √(dte/365)` over the ~30 DTE expiry). Since the option chain is no longer fed to the model, it does not pick exact strikes or quote a numeric POP; instead it reasons about *where* the safe short strike sits. The conservative edge is a short strike beyond **both** the support/resistance level **and** the 1-SD bound (`expectedMove.lower` for puts, `upper` for calls). When the relevant level sits *inside* the expected move, the technically-"safe" strike is statistically exposed → widen, cut size, or PASS. The rationale cites the move verbatim (e.g. "expected move ±$14.20 (±7.1%) over 33 DTE puts the 1-SD lower bound at $185.80, below support $188").
+
+    **Ex-dividend early-assignment guard**: when the fundamentals panel carries an ex-dividend date before a held short call's expiry and that call is ITM, the synth flags the early-exercise risk and prefers CLOSE / ROLL_OUT_AND_UP over HOLD; for new bearish entries near ex-div it prefers `SELL_CALL_SPREAD` (defined risk if assigned) over a covered call. Inert when no ex-div date is present.
 
 10. **Sizing references actual NAV**: cap notional (strike × 100 × contracts) ≤ available cash for CSP, ≤ held shares for covered call; defined-risk spreads sized so max loss stays small vs NAV.
 
