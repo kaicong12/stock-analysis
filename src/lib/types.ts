@@ -99,6 +99,23 @@ export interface VolSummary {
   hvSampleSize: number;
 }
 
+// Server-computed 1-standard-deviation expected move over the sampled (~30 DTE)
+// expiry, derived from ATM IV: move = spot × atmIv × sqrt(dte/365). This is the
+// market's own implied range; the synth uses it to sanity-check that a credit
+// spread's short strike (placed beyond support/resistance) actually sits OUTSIDE
+// the expected move, rather than inside it where it's statistically exposed.
+// Null when the vol snapshot is unavailable (then the check no-ops).
+export interface ExpectedMove {
+  spot: number;
+  atmIv: number;        // decimal, annualized (0.30 = 30%)
+  dte: number;          // calendar DTE of the sampled expiry
+  expiry: string;       // ISO date of the sampled expiry
+  move: number;         // 1-SD absolute move in price terms
+  movePct: number;      // move / spot, as a percent (e.g. 8.4 = ±8.4%)
+  upper: number;        // spot + move (1-SD upper bound)
+  lower: number;        // spot - move (1-SD lower bound)
+}
+
 // Deterministic price-action / breakdown signal from the sidecar's /price-action
 // (yfinance daily OHLCV). Feeds the verdict's "falling-knife guard": a confirmed
 // `signal: "breakdown"` HARD-VETOES selling put spreads / CSPs into the decline;
@@ -255,6 +272,7 @@ export interface FundamentalsData {
   heldPercentInstitutions: number | null; // decimal
   currency: string | null;
   nextEarningsDate: string | null;        // ISO date YYYY-MM-DD
+  exDividendDate: string | null;          // ISO date YYYY-MM-DD; drives early-assignment risk on short calls
 }
 
 export interface FundamentalsResult {

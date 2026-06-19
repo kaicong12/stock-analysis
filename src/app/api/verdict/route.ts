@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import { synthesizeVerdict } from "../../../lib/gemini/synth";
-import { getPriceAction, getTechnicalIndicators } from "../../../lib/moomoo/sidecar";
+import { computeExpectedMove, synthesizeVerdict } from "../../../lib/gemini/synth";
+import { getPriceAction, getTechnicalIndicators, getVolSummary } from "../../../lib/moomoo/sidecar";
 import type {
   HeldGroup,
   PanelSummary,
@@ -44,13 +44,14 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "ticker, symbol, and panels are required" }, { status: 400 });
   }
   try {
-    // Price-action signal + standing technical indicators are fetched
-    // server-side (deterministic data, not client-provided) so the falling-knife
-    // guard can't be bypassed by the client and the figures are trustworthy.
-    // Neither throws — null degrades gracefully (guard no-ops / overlay ignored).
-    const [priceAction, technicalIndicators] = await Promise.all([
+    // Price-action signal, standing technical indicators, and the vol snapshot
+    // are fetched server-side (deterministic data, not client-provided) so the
+    // falling-knife guard can't be bypassed and the figures are trustworthy.
+    // None throws — null degrades gracefully (guard no-ops / overlay ignored).
+    const [priceAction, technicalIndicators, volSummary] = await Promise.all([
       getPriceAction(body.symbol),
       getTechnicalIndicators(body.symbol),
+      getVolSummary(body.symbol),
     ]);
     const verdict = await synthesizeVerdict({
       ticker: body.ticker,
@@ -61,6 +62,8 @@ export async function POST(request: NextRequest) {
       heldGroups: body.heldGroups ?? [],
       priceAction,
       technicalIndicators,
+      // 1-SD expected move from ATM IV — feeds the strike-placement check.
+      expectedMove: computeExpectedMove(volSummary),
       macroContext: body.macroContext ?? null,
       panels: body.panels,
     });

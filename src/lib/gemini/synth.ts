@@ -1,6 +1,7 @@
 import { genJson } from "./client";
 import type {
   DerivativesAction,
+  ExpectedMove,
   HeldGroup,
   PanelSummary,
   Portfolio,
@@ -13,7 +14,29 @@ import type {
   StockAction,
   TechnicalIndicators,
   Verdict,
+  VolSummary,
 } from "../types";
+
+// 1-standard-deviation expected move over the sampled (~30 DTE) expiry, from
+// ATM IV: move = spot × atmIv × sqrt(dte/365). Deterministic — the synth uses it
+// to check that a credit-spread short strike sits OUTSIDE the implied range.
+// Returns null when the vol snapshot, spot, IV, or DTE is missing.
+export function computeExpectedMove(vol: VolSummary | null): ExpectedMove | null {
+  if (!vol) return null;
+  const { spot, atmIv, dte, expiryUsed } = vol;
+  if (!spot || spot <= 0 || atmIv === null || atmIv <= 0 || !dte || dte <= 0) return null;
+  const move = spot * atmIv * Math.sqrt(dte / 365);
+  return {
+    spot,
+    atmIv,
+    dte,
+    expiry: expiryUsed,
+    move: Number(move.toFixed(2)),
+    movePct: Number(((move / spot) * 100).toFixed(2)),
+    upper: Number((spot + move).toFixed(2)),
+    lower: Number((spot - move).toFixed(2)),
+  };
+}
 
 // ---------- schema fragments ----------
 
@@ -270,9 +293,12 @@ Eligibility hard rules — these gate strategy selection. The server has pre-com
 
 - Options DTE rule: stick to ~30-45 DTE for new entries. Income trades (CSP / credit spreads / covered call) can extend to 45-60 DTE for richer theta.
 
-Probability of Profit (POP) discipline:
-- For CREDIT spreads / income (short vega): typical POP is 65-80% — you win if the stock is flat, up, or only mildly down (for puts) / mildly up (for calls). This is the default and only structure menu.
-- Mention the approximate POP regime in the rationale ("CSP at 30Δ ≈ 70% POP").
+EXPECTED MOVE & STRIKE PLACEMENT (payload field: \`expectedMove\` — server-computed; null = skip this section):
+The market's own 1-standard-deviation range over the ~30 DTE expiry, derived from ATM IV: \`move\` = spot × atmIv × sqrt(dte/365). Fields: \`move\` (absolute $), \`movePct\` (± % of spot), \`upper\`/\`lower\` (the 1-SD bounds), \`dte\`, \`atmIv\`. This is the SINGLE most important number for placing a defined-risk short strike — direction and POP are downstream of it. You are no longer fed the option chain, so you do NOT pick exact strikes or quote a numeric POP; instead reason about WHERE the safe strike sits relative to this range.
+- The conservative edge is a short strike OUTSIDE the expected move. Cross-check it against the support/resistance levels from technicalIndicators: a bullish SELL_PUT_SPREAD / CSP wants its short put below BOTH \`support\` AND \`expectedMove.lower\`; a bearish SELL_CALL_SPREAD wants its short call above BOTH \`resistance\` AND \`expectedMove.upper\`. The level only protects you if it sits beyond the implied range.
+- When the relevant support/resistance level is INSIDE the expected move (support > \`lower\`, or resistance < \`upper\`), the technically-"safe" strike is statistically exposed — the market prices a >1-SD chance of breaching it. Respond by widening (push the short strike further OTM, toward the ~0.15Δ guidance), cutting size, or PASS. Say so in the rationale.
+- A WIDE expected move (high \`movePct\`, e.g. > ~10% on a large-cap) means rich premium but also a real chance of a big adverse move — favor smaller size and farther-OTM short strikes; a NARROW expected move (low \`movePct\`) means thin premium — only sell it with strong conviction, else PASS (this overlaps the low-IV PASS logic).
+- When expectedMove materially shapes the call, CITE it in the rationale verbatim (e.g. "expected move ±$14.20 (±7.1%) over 33 DTE puts the 1-SD lower bound at $185.80, below support $188 — bull-put short strike has room"). Do NOT invent your own move number; use the field.
 
 Management discipline for held CREDIT positions (apply BEFORE direction/Greeks logic):
 These two rules fire on existing short-premium positions (CSP, covered call, credit spread, or the short legs of any structure the user opened) regardless of overall directional thesis. They are the institutional standard for short-premium management.
@@ -280,6 +306,7 @@ These two rules fire on existing short-premium positions (CSP, covered call, cre
 - READ THE CAPTURED FRACTION FROM positionManagement[].pnlPctOfMax — it is server-computed, sign-correct, and unit-correct. POSITIVE means winning (0.50 = 50% of max profit captured, 1.00 = max profit reached); NEGATIVE means losing (-0.50 = currently down ~half the max profit you could ever earn on this trade).
 - PHRASING RULE (critical — avoid ambiguity): when pnlPctOfMax is POSITIVE, say "captured X% of max profit" or "X% of the way to max profit". When pnlPctOfMax is NEGATIVE, say "currently DOWN X% of max profit (losing $|pnl| of a $maxProfit max)" or "underwater by X% of max profit" — NEVER write "at -X% of max profit", because users misread that as "+X% profit". Always make the win/lose direction unambiguous in plain English.
 - DO NOT compute captured from avgCost and mktPrice yourself. Those fields have INCOMPATIBLE units in IBKR's payload: avgCost for OPT is per-contract dollars (already includes the 100x multiplier), while mktPrice is per-share quoted premium. Dividing them produces a 100x error — a position at 42% captured will look like 99% captured. Use pnlPctOfMax exclusively for this rule.
+- EX-DIVIDEND EARLY-ASSIGNMENT GUARD: the fundamentals panel's [Calendar] bullet / meta may carry an "ex-div {YYYY-MM-DD}" date. A SHORT CALL that is ITM (or near-the-money) going into ex-div is the classic early-exercise surprise — the counterparty exercises to capture the dividend, assigning the user early and forcing delivery of shares (and forfeited dividend on a naked/bear-call leg). When a held short call exists AND ex-div falls before its expiry, flag it in the rationale and prefer CLOSE / ROLL_OUT_AND_UP over HOLD if the short call is ITM. For NEW bearish entries when ex-div is imminent, prefer SELL_CALL_SPREAD (defined risk if assigned) over SELL_COVERED_CALL, and keep the short call comfortably OTM. Ex-div is NOT a constraint on put-side trades. When no ex-div date is present, this guard is inert.
 - 21 DTE RULE: when ANY held SHORT leg has daysToExpiry ≤ 21, the leg is in the gamma-risk zone — a single bad day can wipe out weeks of decay, and assignment risk (especially on ITM short puts near ex-div) starts to matter. Choose CLOSE if the position is at ≥50% max profit OR if you're net-positive at all (just take it). Choose ROLL_OUT if the leg is losing AND the underlying thesis is intact OR neutral. NEVER choose HOLD on a credit position with DTE ≤ 21 unless the user is deliberately running it to expiration for tax-lot reasons (and even then, flag the risk in the rationale).
 - These rules OUTRANK the Held-leg Greeks check below — if the 50% target is hit OR DTE ≤ 21, the management decision is made before delta even matters.
 
@@ -363,6 +390,10 @@ export interface SynthInput {
   // server-computed. Complements the technical panel's anomaly EVENTS with the
   // current STATE (e.g. overbought). Null when the sidecar is unavailable.
   technicalIndicators: TechnicalIndicators | null;
+  // Deterministic 1-SD expected move over the ~30 DTE expiry (from ATM IV).
+  // Server-computed via computeExpectedMove(volSummary). Null when the vol
+  // snapshot is unavailable — the expected-move check then no-ops.
+  expectedMove?: ExpectedMove | null;
   // Live macro backdrop from Gemini + Google Search grounding, fetched once on
   // page load. Ambient context only — do not override panel signals with it.
   macroContext?: string | null;
@@ -605,6 +636,9 @@ function buildPrompt(input: SynthInput): string {
     // Standing technical-indicator readings (RSI/MACD/Bollinger/SMA distances).
     // See the TECHNICAL INDICATOR STATE section in SYSTEM_INSTRUCTION.
     technicalIndicators: input.technicalIndicators ?? null,
+    // Deterministic 1-SD expected move (ATM IV over ~30 DTE). See the EXPECTED
+    // MOVE & STRIKE PLACEMENT section in SYSTEM_INSTRUCTION. Null = no-op.
+    expectedMove: input.expectedMove ?? null,
     // Ambient macro backdrop (live web-search). Treat as a 10-20% weight on the
     // directional call — reinforces or tempers panel signals, does not override them.
     // Null when unavailable; ignore if null.
