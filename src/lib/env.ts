@@ -11,11 +11,10 @@ export const env = {
   // Gemini direct API — used by /api/assistant for web-grounded chat. Free-tier
   // key from AI Studio works (15 RPM / 1500 RPD), no billing required.
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
-  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.5-flash-lite",
-  // Model for the two WEB-GROUNDED surfaces (Stock Digest panel + Ask AI). These
-  // browse live via Google Search and want a more capable model than the cheap
-  // structured-panel path, independent of GEMINI_MODEL. Override per-deploy with
-  // GEMINI_GROUNDED_MODEL; everything else keeps using GEMINI_MODEL.
+  // Model for ALL THREE web-grounded surfaces (Stock Digest panel + Ask AI +
+  // Macro briefing). These browse live via Google Search and want a more capable
+  // model than the cheap OpenRouter structured-panel path (openrouterModel).
+  // Every direct-Gemini call is grounded, so this is the only Gemini model var.
   geminiGroundedModel: process.env.GEMINI_GROUNDED_MODEL ?? "gemini-2.5-flash",
   // Optional referer headers OpenRouter uses for free-tier accounting / dashboard attribution.
   openrouterAppUrl: process.env.OPENROUTER_APP_URL ?? "http://localhost:3000",

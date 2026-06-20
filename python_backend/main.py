@@ -352,6 +352,31 @@ def fundamentals(symbol: str = Query(..., description="e.g. US.AAPL")):
     except Exception:
         next_earnings = None
 
+    # Ex-dividend date — drives early-assignment risk on short calls (a short
+    # call ITM into ex-div is the classic early-exercise surprise). yfinance
+    # exposes it as an epoch timestamp in info; fall back to the calendar.
+    ex_div: str | None = None
+    try:
+        raw_ex = info.get("exDividendDate")
+        if raw_ex:
+            ex_div = dt.datetime.utcfromtimestamp(int(raw_ex)).date().isoformat()
+    except Exception:
+        ex_div = None
+    if ex_div is None:
+        try:
+            cal = t.calendar
+            cd = cal.to_dict() if hasattr(cal, "to_dict") else (cal if isinstance(cal, dict) else {})
+            ev = cd.get("Ex-Dividend Date")
+            if isinstance(ev, dict) and ev:
+                first = next(iter(ev.values()), None)
+                ex_div = str(first)[:10] if first is not None else None
+            elif isinstance(ev, list) and ev:
+                ex_div = str(ev[0])[:10]
+            elif ev is not None:
+                ex_div = str(ev)[:10]
+        except Exception:
+            ex_div = None
+
     return {
         "symbol": symbol,
         "yfTicker": yf_ticker,
@@ -399,6 +424,7 @@ def fundamentals(symbol: str = Query(..., description="e.g. US.AAPL")):
             "heldPercentInstitutions": _f(info.get("heldPercentInstitutions")),
             "currency": info.get("currency"),
             "nextEarningsDate": next_earnings,
+            "exDividendDate": ex_div,
         },
     }
 

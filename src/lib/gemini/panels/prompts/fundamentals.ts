@@ -35,7 +35,7 @@ Output:
   - [Profitability]: profitMargins, operatingMargins, returnOnEquity.
   - [Balance sheet]: debtToEquity, freeCashflow, totalCash, currentRatio.
   - [Analyst view]: recommendationKey, numberOfAnalystOpinions, targetMeanPrice vs currentPrice (% upside/downside).
-  - [Calendar]: nextEarningsDate + DTE if within 30 days. Skip if missing or far out.
+  - [Calendar]: nextEarningsDate + DTE if within 30 days. ALSO cite exDividendDate when it is present and within ~30 days (e.g. "ex-div 2026-07-02 (13d)") — the verdict uses it to flag early-assignment risk on short calls. Skip the bullet only if BOTH earnings and ex-div are missing/far out.
 - meta (4 items, exactly): a quick-scan stat row.
   - { label: "P/E (fwd)", value: forwardPE rounded to 1dp, "—" if null }
   - { label: "Rev YoY", value: revenueGrowth as +X.X% / -X.X%, "—" if null }
