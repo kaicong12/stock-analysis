@@ -30,7 +30,9 @@ async function callGemini(): Promise<string | null> {
   try {
     const ai = new GoogleGenAI({ apiKey: env.geminiApiKey });
     const response = await ai.models.generateContent({
-      model: env.geminiModel,
+      // Web-grounded (Google Search tool below) → use the more capable grounded
+      // model, same as the Stock Digest panel and Ask AI.
+      model: env.geminiGroundedModel,
       contents: [{ role: "user", parts: [{ text: PROMPT }] }],
       config: { tools: [{ googleSearch: {} }] },
     });

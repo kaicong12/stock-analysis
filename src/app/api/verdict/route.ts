@@ -64,6 +64,8 @@ export async function POST(request: NextRequest) {
       technicalIndicators,
       // 1-SD expected move from ATM IV — feeds the strike-placement check.
       expectedMove: computeExpectedMove(volSummary),
+      // Raw IV/HV — feeds the deterministic IV-HV discount guard.
+      ivHvRatio: volSummary?.ivHvRatio ?? null,
       macroContext: body.macroContext ?? null,
       panels: body.panels,
     });

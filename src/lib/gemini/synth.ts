@@ -255,14 +255,15 @@ IV regime → required vega direction (non-negotiable):
 - IV percentile HIGH (>~70): credit trades are mathematically rich. MATCH THE CREDIT TRADE TO YOUR DIRECTIONAL BIAS — high IV does NOT default to bullish.
   - Bullish-to-neutral bias → SELL_CASH_SECURED_PUT (cash-permitting) or SELL_PUT_SPREAD (cash-light alternative). Both capture put-side premium.
   - Bearish-to-neutral bias → SELL_COVERED_CALL (≥100 shares held) or SELL_CALL_SPREAD (no shares required). Both capture call-side premium.
-- IV percentile LOW (<~30): premium is cheap; selling credit gives a thin reward for the same defined risk. PASS is acceptable here on a marginal directional thesis. Only commit to a credit spread when conviction ≥ 70 AND directional support is strong.
+- IV percentile LOW (<~30) — OR, when no percentile is available, IV/HV < ~0.9 (the Vol baseline bullet labels this "IV discount to realized"): premium is cheap RELATIVE TO THE MOVEMENT THE STOCK IS ACTUALLY DELIVERING — selling credit gives a thin reward for the risk being realized. This is a negative-vol-edge environment for a premium seller: the conservative default is PASS. Only commit to a credit spread when conviction ≥ 70 AND directional support is strong AND the short strike clears both the support/resistance level and the expectedMove bound. See the IV-HV DISCOUNT GUARD below.
 - IV middle (~30-70): credit spreads remain the only structures on the menu. Pick CREDIT matched to the directional bias when conviction ≥ 55. The credit pick MUST match the directional bias: bullish → SELL_CSP (cash-permitting) or SELL_PUT_SPREAD (cash-light); bearish → SELL_COVERED_CALL (eligible) or SELL_CALL_SPREAD (no shares). Skip the trade (PASS) if conviction < 55 AND IV-HV is at parity.
 
 IV-HV check (mandatory when IV percentile is mid-to-high) — tiered, matches the user's Spread Checklist:
 - IV/HV ≥ 1.2× (REQUIRED tier): options are paying more than realized. The derivatives panel cites this when IV exceeds HV by ~20% or more, often phrased as "IV slightly elevated vs HV" or "IV-HV溢价". Treat this as the minimum "premium is rich" signal — credit selling has positive expected value vs. realized movement.
 - IV/HV ≥ 1.5× (PREFERRED tier): the implied-vs-realized gap is wide enough that IV mean-reversion alone gives positive EV before any directional move. Lean in here.
 - IV/HV ≥ 2× (IDEAL tier): the "IV-HV高额溢价" / "implied >> realized by 2x+" case. SELLING premium is mathematically favored REGARDLESS of directional bias.
-- IV ≈ HV (ratio < 1.2×): vol is fair-priced — treat as "no IV-HV premium" for PASS-criterion purposes; lean on direction alone.
+- IV ≈ HV (0.9× ≤ ratio < 1.2×): vol is fair-priced — treat as "no IV-HV premium" for PASS-criterion purposes; lean on direction alone.
+- IV-HV DISCOUNT GUARD — IV/HV < ~0.9× (IV BELOW realized; the Vol baseline labels it "IV discount to realized"): this is NOT "no premium, just trade direction." It is an ACTIVE warning that the market is pricing LESS movement than the stock is realizing, so a credit seller is structurally UNDERPAID for the actual risk — negative vol edge, AND the wide realized move makes the short strike easier to breach. For this credit-only book the default here is PASS, even when the directional read is clean (a bearish thesis at IV/HV 0.72 routes to PASS, NOT SELL_CALL_SPREAD). Override to a credit spread ONLY when ALL of: conviction ≥ 75, the short strike sits beyond BOTH the relevant support/resistance level AND the expectedMove 1-SD bound, and size is trimmed. The rationale MUST cite the ratio and name the guard (e.g. "IV/HV 0.72 — IV discount to realized; underpaid to sell premium into a wide realized move → PASS").
 - Do NOT require the explicit "高额溢价" phrasing. Any panel language indicating IV > HV at any magnitude ≥ 1.2× counts as an IV-HV premium for the PASS / regime logic above.
 
 Skew check (mandatory; uses 25Δ skew from the Vol baseline bullet):
@@ -394,6 +395,10 @@ export interface SynthInput {
   // Server-computed via computeExpectedMove(volSummary). Null when the vol
   // snapshot is unavailable — the expected-move check then no-ops.
   expectedMove?: ExpectedMove | null;
+  // Raw ATM-IV / HV30 ratio from the vol snapshot. < ~0.9 = "IV discount to
+  // realized" — credit selling is underpaid. Drives the deterministic IV-HV
+  // discount guard in synthesizeVerdict. Null when the snapshot is unavailable.
+  ivHvRatio?: number | null;
   // Live macro backdrop from Gemini + Google Search grounding, fetched once on
   // page load. Ambient context only — do not override panel signals with it.
   macroContext?: string | null;
@@ -865,6 +870,39 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
     );
     derivAction = "PASS";
     derivInstr = `[Auto-corrected: melt-up guard — ${input.ticker} is breaking out (${why}). Not selling upside premium into a melt-up; standing aside.] ${derivInstr}`;
+  }
+
+  // IV-HV DISCOUNT GUARD (deterministic enforcement). When IV is materially
+  // BELOW realized vol (IV/HV < 0.9), a credit seller is structurally underpaid
+  // for the movement the stock is actually delivering — negative vol edge, and
+  // the wide realized move makes the short strike easier to breach. The prompt
+  // permits an override only at conviction ≥ 75 with the strike beyond both the
+  // level and the expected move, but the model rationalizes around it (it cites
+  // the 0.72 ratio, then sells "a small spread" anyway). Hard-backstop it: force
+  // PASS on any NEW credit entry below the conviction gate. Management actions
+  // (HOLD/CLOSE/ROLL_OUT/TRIM/INCREASE) are unaffected — defending an existing
+  // position is not a fresh underpaid sale.
+  const NEW_CREDIT_ENTRIES: DerivativesAction[] = [
+    "SELL_PUT_SPREAD",
+    "SELL_CALL_SPREAD",
+    "SELL_CASH_SECURED_PUT",
+    "SELL_COVERED_CALL",
+    "IRON_CONDOR",
+  ];
+  const ivHv = input.ivHvRatio;
+  if (
+    ivHv != null &&
+    ivHv < 0.9 &&
+    raw.derivatives.confidence < 75 &&
+    NEW_CREDIT_ENTRIES.includes(derivAction)
+  ) {
+    console.warn(
+      `[synth] IV-HV DISCOUNT GUARD: model picked ${derivAction} at IV/HV ${ivHv.toFixed(2)} ` +
+        `(IV discount to realized) with derivConfidence=${raw.derivatives.confidence} < 75 ` +
+        `(${input.ticker}). Overriding to PASS.`,
+    );
+    derivInstr = `[Auto-corrected: IV-HV discount guard — IV/HV ${ivHv.toFixed(2)} (IV below realized) and derivatives conviction ${raw.derivatives.confidence} < 75. Underpaid to sell premium into a wider realized move; standing aside.] ${derivInstr}`;
+    derivAction = "PASS";
   }
 
   // Server-computed sizing footer: strip any "% NAV" prose the model wrote
