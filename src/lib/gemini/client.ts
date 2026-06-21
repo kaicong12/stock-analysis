@@ -1,10 +1,16 @@
-// OpenRouter client. OpenRouter exposes an OpenAI-compatible /chat/completions
-// endpoint, so we hit it with raw fetch — no need for the openai SDK as a dep.
+// Structured-JSON LLM client. Calls the Google Gemini API directly (Google AI
+// Studio key) via @google/genai — the same SDK the web-grounded surfaces use.
 //
-// We force JSON output via response_format=json_object and inject the JSON schema
-// into the system message as documentation. Strict schema enforcement varies by
-// model on OpenRouter (especially on :free tiers), so we rely on application-side
-// JSON.parse + the route's settle() wrapper to isolate any bad outputs.
+// We force JSON output via responseMimeType="application/json" and inject the
+// JSON schema into the system instruction as documentation. We deliberately do
+// NOT pass a strict Gemini responseSchema: the panel/synth schemas use JSON
+// Schema features (mixed type arrays like ["integer","null"], minimum/maximum)
+// that Gemini's OpenAPI-subset responseSchema does not accept. Keeping the
+// schema-as-docs approach lets the existing schemas ride unchanged; we rely on
+// application-side JSON.parse + each route's settle() wrapper to isolate any bad
+// outputs. This path is NON-grounded (no googleSearch tool) — it reasons only
+// over the data in the prompt.
+import { GoogleGenAI } from "@google/genai";
 import { env } from "../env";
 
 export interface GenJsonOptions {
@@ -15,11 +21,6 @@ export interface GenJsonOptions {
   timeoutMs?: number;
 }
 
-interface ChatResponse {
-  choices?: { message?: { content?: string } }[];
-  error?: { message?: string; code?: number };
-}
-
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 function stripJsonFence(s: string): string {
@@ -27,6 +28,8 @@ function stripJsonFence(s: string): string {
 }
 
 export async function genJson<T>(opts: GenJsonOptions): Promise<T> {
+  if (!env.geminiApiKey) throw new Error("GEMINI_API_KEY is not configured");
+
   const schemaText = JSON.stringify(opts.schema, null, 2);
   const sys = `${opts.systemInstruction}
 
@@ -44,43 +47,27 @@ No prose, no markdown fences, no commentary — only the JSON object.`;
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${env.openrouterBaseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.openrouterApiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": env.openrouterAppUrl,
-        "X-Title": env.openrouterAppTitle,
-      },
-      body: JSON.stringify({
-        model: env.openrouterModel,
+    const ai = new GoogleGenAI({ apiKey: env.geminiApiKey });
+    const response = await ai.models.generateContent({
+      model: env.geminiStructuredModel,
+      contents: [{ role: "user", parts: [{ text: opts.prompt }] }],
+      config: {
+        systemInstruction: sys,
         temperature: opts.temperature ?? 0.3,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: opts.prompt },
-        ],
-      }),
-      signal: ctrl.signal,
+        responseMimeType: "application/json",
+        abortSignal: ctrl.signal,
+      },
     });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`openrouter ${res.status}: ${text.slice(0, 400)}`);
+    const text =
+      response.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    if (!text.trim()) {
+      throw new Error("gemini returned empty content");
     }
-
-    const j = (await res.json()) as ChatResponse;
-    if (j.error) {
-      throw new Error(`openrouter: ${j.error.message ?? "unknown error"}`);
-    }
-    const content = j.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      throw new Error("openrouter returned empty content");
-    }
-    return JSON.parse(stripJsonFence(content)) as T;
+    return JSON.parse(stripJsonFence(text)) as T;
   } catch (e) {
     if ((e as { name?: string }).name === "AbortError") {
-      throw new Error(`openrouter timeout after ${(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000}s`);
+      throw new Error(`gemini timeout after ${(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000}s`);
     }
     throw e;
   } finally {

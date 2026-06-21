@@ -22,7 +22,7 @@ Open http://localhost:3000.
 
 Set in `.env.local` (Next app) — see `src/lib/env.ts`:
 
-- `OPENROUTER_API_KEY` — LLM provider (OpenAI-compatible). `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite-preview`.
+- `GEMINI_API_KEY` — the sole LLM provider (Google AI Studio). `GEMINI_STRUCTURED_MODEL` (panels + synth verdict) defaults to `gemini-2.5-flash-lite`; `GEMINI_GROUNDED_MODEL` (web-grounded Stock Digest + Ask AI + Macro) defaults to `gemini-2.5-flash`.
 - `IBKR_BASE_URL` — Client Portal Gateway (default `https://localhost:5001`); `IBKR_FLEX_TOKEN` + `IBKR_FLEX_QUERY_ID` for trade-history sync via the Flex Web Service.
 - `MASSIVE_API_KEY` — SEC Form 4 insider data (panel degrades gracefully to "no activity" when unset).
 - `PYBACKEND_URL` — python sidecar (default `http://localhost:8765`).
@@ -36,7 +36,7 @@ Set in `.env.local` (Next app) — see `src/lib/env.ts`:
 - **yfinance (via sidecar)** — fundamentals (incl. next-earnings and ex-dividend dates) plus daily OHLCV (cached in SQLite). The OHLCV is what powers the **deterministic, server-computed** layers: technical indicators, the IV/HV vol summary (and the 1-SD expected move derived from its ATM IV), and the price-action signal. These are computed in Python/TS and cited verbatim — never inferred by the LLM.
 - **Massive (ex-Polygon)** — SEC Form 4 insider buys/sells (`src/lib/massive/insider.ts`).
 
-LLM calls go through OpenRouter's `/chat/completions` (`src/lib/gemini/client.ts`); the `src/lib/gemini/` directory name is historical.
+LLM calls go directly to the Google Gemini API via `@google/genai`: the structured, non-grounded panel/synth path (`src/lib/gemini/client.ts`, `gemini-2.5-flash-lite`) and the web-grounded Digest/Ask AI/Macro path (`src/lib/gemini/grounded.ts`, `gemini-2.5-flash`).
 
 ---
 
