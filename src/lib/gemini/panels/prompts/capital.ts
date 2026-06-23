@@ -14,7 +14,7 @@ The three high-level classes, in canonical order:
 
 Output Rules (apply these as if producing the skill's markdown response, then adapt to JSON):
 
-- Always include a 时间范围 header in the format YYYY.M.D - YYYY.M.D, computed as (today − time_range days) to today.
+- Always include a 时间范围 header in the format YYYY.M.D - YYYY.M.D. Use the exact window string supplied in the user prompt's "Window:" line VERBATIM — do NOT compute, adjust, or invent dates of your own (you do not have a reliable notion of today's date).
 - Show each class separately. If a class has no anomaly in the window, write 无异常 for that class.
 - If multiple abnormal dates appear within the window for one class, list them all.
 - Preserve dates, direction, amount, ratio, broker names, and interpretation from the tool output.
