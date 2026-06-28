@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import type { HeldGroup, JournalCloseLeg, Position } from "../../lib/types";
+import { useEffect, useState } from "react";
+import type { HeldGroup, JournalCloseLeg, LevelsSnapshot, Position } from "../../lib/types";
 import type { JournalStrategy, JournalTradeWithLegs } from "../../lib/journal/types";
+import { evalShortLegs } from "../../lib/positions/levels";
 import styles from "../page.module.css";
 import { fmtMoney, fmtNum, fmtSigned } from "./format";
 import { OrderModal, type OrderModalIntent } from "./OrderModal";
@@ -70,7 +71,7 @@ function strikeRange(g: HeldGroup): string {
   return `${strikes[0]}/${strikes[strikes.length - 1]}`;
 }
 
-export function HeldOptionsDetail({ groups }: { groups: HeldGroup[] }) {
+export function HeldOptionsDetail({ groups, symbol }: { groups: HeldGroup[]; symbol: string }) {
   const optionGroups = groups
     .filter((g) => g.kind !== "STOCK")
     .slice()
@@ -81,10 +82,116 @@ export function HeldOptionsDetail({ groups }: { groups: HeldGroup[] }) {
       <div className={styles.heldOptionsHeader + " font-display"}>Held Options</div>
       <div className={styles.heldOptionsList}>
         {optionGroups.map((g, i) => (
-          <HeldOptionGroupCard key={`hg-${g.underlying}-${g.expiry}-${i}`} group={g} />
+          <HeldOptionGroupCard key={`hg-${g.underlying}-${g.expiry}-${i}`} group={g} symbol={symbol} />
         ))}
       </div>
     </section>
+  );
+}
+
+function LevelsPanel({ group, symbol }: { group: HeldGroup; symbol: string }) {
+  const [snap, setSnap] = useState<LevelsSnapshot | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        // Pass the position's DTE so vol is sampled at the position's expiry —
+        // IV is DTE-specific, so a 19-DTE spread must not get a 30-DTE move.
+        const res = await fetch(
+          `/api/levels?symbol=${encodeURIComponent(symbol)}&dte=${group.dte}`,
+        );
+        if (!res.ok) throw new Error(String(res.status));
+        const json = (await res.json()) as { snapshot: LevelsSnapshot };
+        if (alive) {
+          setSnap(json.snapshot);
+          setState("ready");
+        }
+      } catch {
+        if (alive) setState("error");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [symbol, group.dte]);
+
+  if (state === "loading") return <div className={styles.levelsPanel}>Loading live levels…</div>;
+  if (state === "error" || !snap) {
+    return <div className={styles.levelsPanel}>Live levels unavailable for {group.underlying}.</div>;
+  }
+
+  const em = snap.expectedMove;
+  const legs = evalShortLegs(group, snap);
+
+  return (
+    <div className={styles.levelsPanel}>
+      <div className={styles.levelsSummary}>
+        <span className={styles.levelsItem}>
+          <span className={styles.levelsItemLabel}>Spot</span>
+          <span className={styles.levelsItemValue + " tabular-nums"}>{snap.spot != null ? fmtNum(snap.spot) : "—"}</span>
+        </span>
+        <span className={styles.levelsItem}>
+          <span className={styles.levelsItemLabel}>Expected move</span>
+          <span className={styles.levelsItemValue + " tabular-nums"}>
+            {em ? `±${fmtNum(em.move)} (±${em.movePct.toFixed(1)}%) · ${em.dte}d` : "—"}
+          </span>
+        </span>
+        <span className={styles.levelsItem}>
+          <span className={styles.levelsItemLabel}>EM range</span>
+          <span className={styles.levelsItemValue + " tabular-nums"}>
+            {em ? `${fmtNum(em.lower)} – ${fmtNum(em.upper)}` : "—"}
+          </span>
+        </span>
+        <span className={styles.levelsItem}>
+          <span className={styles.levelsItemLabel}>Support / Resistance</span>
+          <span className={styles.levelsItemValue + " tabular-nums"}>
+            {snap.support != null ? fmtNum(snap.support) : "—"} / {snap.resistance != null ? fmtNum(snap.resistance) : "—"}
+          </span>
+        </span>
+      </div>
+
+      {legs.length === 0 ? (
+        <div className={styles.levelsNote}>No short option leg to monitor in this group.</div>
+      ) : (
+        <div className={styles.levelsLegs}>
+          {legs.map((s) => {
+            const toneCls = s.tone === "breached" ? styles.levelBreached : s.tone === "watch" ? styles.levelWatch : styles.levelOk;
+            const sideLabel = s.side === "P" ? "Short put" : "Short call";
+            const boundLabel = s.side === "P" ? "EM floor" : "EM ceiling";
+            const levelLabel = s.side === "P" ? "support" : "resistance";
+            const Level = `${levelLabel[0].toUpperCase()}${levelLabel.slice(1)}`;
+            const verdict =
+              s.tone === "breached"
+                ? "Price has crossed the short strike — close."
+                : s.tone === "watch"
+                  ? s.levelBreached
+                    ? `Strike now inside expected move (${levelLabel} also broken) — consider closing.`
+                    : "Strike now inside expected move — exposed."
+                  : s.levelBreached
+                    ? `${Level} broken past strike, but expected move still has room — watch.`
+                    : "Short strike still outside expected move — OK.";
+            return (
+              <div key={s.conid} className={`${styles.levelsLegRow} ${toneCls}`}>
+                <span className={styles.levelsLegHead + " tabular-nums"}>
+                  {sideLabel} {fmtNum(s.strike)}
+                </span>
+                <span className={styles.levelsLegDetail + " tabular-nums"}>
+                  {boundLabel} {s.emBound != null ? fmtNum(s.emBound) : "—"}
+                  {s.emInside ? " (inside)" : ""} · {levelLabel} {s.level != null ? fmtNum(s.level) : "—"}
+                </span>
+                <span className={styles.levelsLegVerdict}>{verdict}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className={styles.levelsNote}>
+        Levels recomputed live{snap.asOf ? ` (as of ${fmtIso(snap.asOf)})` : ""}; the short strike is fixed — watch for the
+        bound to cross it.
+      </div>
+    </div>
   );
 }
 
@@ -143,8 +250,9 @@ async function findJournalTradeIdForGroup(g: HeldGroup): Promise<number | null> 
   }
 }
 
-function HeldOptionGroupCard({ group: g }: { group: HeldGroup }) {
+function HeldOptionGroupCard({ group: g, symbol }: { group: HeldGroup; symbol: string }) {
   const currency = g.legs[0]?.currency ?? "USD";
+  const [showLevels, setShowLevels] = useState(false);
   const triggers: { label: string; tone: "bullish" | "bearish" | "neutral" }[] = [];
   if (g.triggers.pt50Hit) triggers.push({ label: "50% PT hit", tone: "bullish" });
   if (g.triggers.dteUnder21) triggers.push({ label: `${g.dte} DTE`, tone: "bearish" });
@@ -257,7 +365,17 @@ function HeldOptionGroupCard({ group: g }: { group: HeldGroup }) {
 
       {g.dataIssue && <div className={styles.heldOptionsDataIssue}>{g.dataIssue}</div>}
 
-      <div className={styles.journalActions} style={{ justifyContent: "flex-end", marginTop: 8 }}>
+      {showLevels && <LevelsPanel group={g} symbol={symbol} />}
+
+      <div className={styles.journalActions} style={{ justifyContent: "space-between", marginTop: 8 }}>
+        <button
+          type="button"
+          className={styles.btnGhost}
+          onClick={() => setShowLevels((v) => !v)}
+          aria-expanded={showLevels}
+        >
+          {showLevels ? "Hide levels" : "Expected move & levels"}
+        </button>
         <button
           type="button"
           className={styles.btnPrimary}

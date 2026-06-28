@@ -561,6 +561,7 @@ export default function Page() {
             {state.heldGroups.some((g) => g.underlying === state.ticker.toUpperCase() && g.kind !== "STOCK") && (
               <HeldOptionsDetail
                 groups={state.heldGroups.filter((g) => g.underlying === state.ticker.toUpperCase())}
+                symbol={state.symbol}
               />
             )}
 

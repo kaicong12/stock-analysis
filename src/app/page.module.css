@@ -1493,6 +1493,172 @@
   color: var(--bearish);
 }
 
+/* --- Live expected-move / support-resistance levels panel --- */
+.levelsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.levelsSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+}
+
+.levelsItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.levelsItemLabel {
+  color: var(--on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+
+.levelsItemValue {
+  color: var(--on-surface);
+}
+
+.levelsLegs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.levelsLegRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border-left: 3px solid var(--outline);
+  background: var(--surface-container-high);
+}
+
+.levelsLegRow.levelOk { border-left-color: var(--bullish); }
+.levelsLegRow.levelWatch { border-left-color: var(--neutral); background: var(--neutral-dim); }
+.levelsLegRow.levelBreached { border-left-color: var(--bearish); background: var(--bearish-dim); }
+
+.levelsLegHead {
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.levelsLegDetail {
+  color: var(--on-surface-variant);
+}
+
+.levelsLegVerdict {
+  color: var(--on-surface);
+}
+
+.levelsLegRow.levelWatch .levelsLegVerdict { color: var(--neutral); }
+.levelsLegRow.levelBreached .levelsLegVerdict { color: var(--bearish); }
+
+.levelsNote {
+  font-size: 10px;
+  color: var(--on-surface-variant);
+}
+
+/* --- Expected-move what-if calculator (new spread, pre-entry) --- */
+.whatIf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+}
+
+.whatIfHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--on-surface);
+}
+
+.whatIfSub {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
+.whatIfInputs {
+  display: flex;
+  gap: 12px;
+}
+
+.whatIfField {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--on-surface-variant);
+}
+
+.whatIfInput {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  color: var(--on-surface);
+  font-size: 13px;
+}
+
+.whatIfInput:focus {
+  outline: none;
+  border-color: var(--primary, var(--neutral));
+}
+
+.whatIfRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--on-surface);
+}
+
+.whatIfLabel {
+  color: var(--on-surface-variant);
+}
+
+.whatIfNote {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
+.whatIfGuide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--on-surface);
+  background: var(--surface-container-high);
+  border-left: 3px solid var(--bullish);
+  border-radius: 4px;
+}
+
 /* ----- Topbar tabs ----- */
 .topbarLeft {
   display: flex;
