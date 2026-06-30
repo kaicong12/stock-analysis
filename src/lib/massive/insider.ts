@@ -153,7 +153,7 @@ function rankNotable(txns: InsiderTransaction[], limit: number): InsiderTransact
 // next_url, which we intentionally don't follow — recent activity is the signal).
 export async function getInsiderTransactions(
   ticker: string,
-  lookbackDays = 90,
+  lookbackDays = 45,
   limit = 100,
 ): Promise<InsiderResult> {
   const empty: InsiderResult = {

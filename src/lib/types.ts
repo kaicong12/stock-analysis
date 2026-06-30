@@ -116,6 +116,22 @@ export interface ExpectedMove {
   lower: number;        // spot - move (1-SD lower bound)
 }
 
+// Live levels snapshot for a single underlying — the data behind the held-options
+// "is my short strike still safe?" panel. expectedMove + support/resistance are
+// recomputed at request time because they DRIFT as spot/IV/DTE move; they're then
+// compared client-side against the position's FIXED short strikes. The strike is
+// the anchor (from the IBKR position); these moving bounds are what cross it.
+export interface LevelsSnapshot {
+  symbol: string;
+  spot: number | null;
+  asOf: string | null;                 // ISO date of the latest bar used (from technicals)
+  expectedMove: ExpectedMove | null;   // live 1-SD bounds; null when vol snapshot unavailable
+  support: number | null;              // nearest live support below spot
+  resistance: number | null;           // nearest live resistance above spot
+  supportLevels: number[];
+  resistanceLevels: number[];
+}
+
 // Deterministic price-action / breakdown signal from the sidecar's /price-action
 // (yfinance daily OHLCV). Feeds the verdict's "falling-knife guard": a confirmed
 // `signal: "breakdown"` HARD-VETOES selling put spreads / CSPs into the decline;

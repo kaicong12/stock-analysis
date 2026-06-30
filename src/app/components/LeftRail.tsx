@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import styles from "../page.module.css";
-import type { HeldGroup, Portfolio } from "../../lib/types";
+import type { HeldGroup, LevelsSnapshot, Portfolio } from "../../lib/types";
 import { isOptionGroup } from "../../lib/positions/types";
+import { evalShortLegs, worstTone, type LevelTone } from "../../lib/positions/levels";
 import { fmtMoney, fmtNum, fmtSigned } from "./format";
 import { JournalButton } from "./Journal";
 import { CalendarButton } from "./Calendar";
@@ -170,6 +172,32 @@ function StocksCard({
   );
 }
 
+const LEVELS_TOOLTIP = [
+  "EM ±x (lo–hi): 1-SD expected move — the range the options market prices over this expiry (spot ± move).",
+  "S / R: nearest support (shown for short puts) or resistance (short calls) — the structural level your short strike should clear.",
+  "⚠ inside: the expected move has reached your short strike — statistically exposed, consider closing.",
+  "⚠ breached: price has crossed the short strike (in the money) — close.",
+].join("\n");
+
+// Compact live-levels line for a rail row: EM range + the level on the threatened
+// short side(s), plus a breach tag. Null when there's no usable snapshot yet.
+function levelsLine(
+  g: HeldGroup,
+  snap: LevelsSnapshot | null | undefined,
+): { emText: string; levelText: string; tone: LevelTone; tag: string } | null {
+  if (!snap) return null;
+  const em = snap.expectedMove;
+  // Always render EM (n/a when vol is unavailable) so it never silently drops.
+  const emText = em ? `±${fmtNum(em.move)} (${fmtNum(em.lower)}–${fmtNum(em.upper)})` : "n/a";
+  const shorts = evalShortLegs(g, snap);
+  const lvl: string[] = [];
+  if (shorts.some((s) => s.side === "P") && snap.support != null) lvl.push(`S ${fmtNum(snap.support)}`);
+  if (shorts.some((s) => s.side === "C") && snap.resistance != null) lvl.push(`R ${fmtNum(snap.resistance)}`);
+  const tone = shorts.length ? worstTone(shorts) : "ok";
+  const tag = tone === "breached" ? "breached" : tone === "watch" ? "inside" : "";
+  return { emText, levelText: lvl.join(" · "), tone, tag };
+}
+
 function OptionsCard({
   groups,
   searchedTicker,
@@ -180,6 +208,39 @@ function OptionsCard({
   onPickTicker: (t: string) => void;
 }) {
   const sortedGroups = groups.slice().sort((a, b) => a.dte - b.dte);
+
+  // Live levels for every name in the book, fetched in one batched POST. Keyed by
+  // bare ticker (matches HeldGroup.underlying). fetchKey re-runs only when the set
+  // of names or their DTEs changes, not on every render.
+  const [snaps, setSnaps] = useState<Record<string, LevelsSnapshot | null>>({});
+  const fetchKey = sortedGroups.map((g) => `${g.underlying}:${g.dte}`).join(",");
+  useEffect(() => {
+    const items = fetchKey
+      ? fetchKey.split(",").map((s) => {
+          const [symbol, dte] = s.split(":");
+          return { symbol, dte: Number(dte) };
+        })
+      : [];
+    if (items.length === 0) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/levels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+        if (!res.ok) return;
+        const json = (await res.json()) as { snapshots: Record<string, LevelsSnapshot | null> };
+        if (alive) setSnaps(json.snapshots ?? {});
+      } catch {
+        /* leave empty — rows just omit the levels line */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [fetchKey]);
   return (
     <div className={styles.railCard}>
       <div className={styles.railCardHeader}>
@@ -231,6 +292,25 @@ function OptionsCard({
                       {fmtSigned(g.pnl, g.legs[0]?.currency ?? "USD")}
                     </span>
                   </div>
+                  {(() => {
+                    const ll = levelsLine(g, snaps[g.underlying]);
+                    if (!ll) return null;
+                    const tagColor = ll.tone === "breached" ? "var(--bearish)" : ll.tone === "watch" ? "var(--neutral)" : "var(--on-surface-variant)";
+                    return (
+                      <div
+                        title={LEVELS_TOOLTIP}
+                        style={{ display: "flex", flexDirection: "column", gap: 1, width: "100%", fontSize: 10.5, color: "var(--on-surface-variant)", cursor: "help" }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 6, width: "100%" }}>
+                          <span className="tabular-nums">EM {ll.emText}</span>
+                          {ll.tag && (
+                            <span className="tabular-nums" style={{ color: tagColor, whiteSpace: "nowrap" }}>⚠ {ll.tag}</span>
+                          )}
+                        </div>
+                        {ll.levelText && <span className="tabular-nums">{ll.levelText}</span>}
+                      </div>
+                    );
+                  })()}
                 </button>
               );
             })}
