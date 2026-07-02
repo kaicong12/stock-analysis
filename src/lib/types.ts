@@ -571,6 +571,19 @@ export interface Verdict {
   };
 }
 
+export type PanelKey = keyof Verdict["panels"];
+
+export const PANEL_KEYS: PanelKey[] = [
+  "fundamentals",
+  "capital",
+  "technical",
+  "derivatives",
+  "sentiment",
+  "digest",
+  "news",
+  "insider",
+];
+
 export interface DashboardData {
   ticker: string;
   symbol: string;

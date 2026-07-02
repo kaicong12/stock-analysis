@@ -13,9 +13,6 @@ import type {
 } from "../lib/types";
 import { classifyPortfolio } from "../lib/positions/groups";
 import { annotateGroups } from "../lib/positions/triggers";
-import { loadBatchResult, saveBatchSession, type BatchTickerPayload } from "../lib/batch/cache";
-import { AskAI } from "./components/AskAI";
-import { BatchView } from "./components/BatchView";
 import { Hero } from "./components/Hero";
 import { HeldOptionsDetail } from "./components/HeldOptionsDetail";
 import { LeftRail } from "./components/LeftRail";
@@ -23,7 +20,7 @@ import { MacroBriefing } from "./components/MacroBriefing";
 import { Panel, PANEL_LABELS } from "./components/Panel";
 import { ScannerView } from "./components/ScannerView";
 import { SkeletonBlock, Welcome } from "./components/Welcome";
-import { Topbar, type AuthStatus, type TabKey } from "./components/Topbar";
+import { Topbar, type AuthStatus } from "./components/Topbar";
 import { VerdictCard } from "./components/VerdictCard";
 import {
   IconCapital,
@@ -93,8 +90,7 @@ type Action =
   | { type: "verdict_loading" }
   | { type: "verdict_done"; verdict: Verdict }
   | { type: "verdict_error"; message: string }
-  | { type: "set_portfolio"; p: Portfolio; heldGroups: HeldGroup[] }
-  | { type: "hydrate_from_cache"; payload: BatchTickerPayload };
+  | { type: "set_portfolio"; p: Portfolio; heldGroups: HeldGroup[] };
 
 const emptyPanels: Record<PanelKey, PanelState> = PANELS.reduce(
   (acc, k) => { acc[k] = { status: "idle" }; return acc; },
@@ -196,30 +192,6 @@ function reducer(state: State, a: Action): State {
         portfolio: a.p,
         heldGroups: state.ticker ? state.heldGroups : a.heldGroups,
       };
-    case "hydrate_from_cache": {
-      const panelsReady: Record<PanelKey, PanelState> = PANELS.reduce(
-        (acc, k) => {
-          acc[k] = { status: "ready", summary: a.payload.panels[k] };
-          return acc;
-        },
-        {} as Record<PanelKey, PanelState>,
-      );
-      return {
-        ...state,
-        status: "done",
-        topError: null,
-        errors: [],
-        ticker: a.payload.ticker,
-        symbol: a.payload.symbol,
-        tickerInput: a.payload.ticker,
-        snapshot: a.payload.snapshot,
-        portfolio: a.payload.portfolio ?? state.portfolio,
-        heldPositions: a.payload.heldPositions,
-        heldGroups: a.payload.heldGroups,
-        panels: panelsReady,
-        verdict: a.payload.verdict,
-      };
-    }
   }
 }
 
@@ -242,8 +214,8 @@ export default function Page() {
   // "Continue anyway" can resume straight into the panel run without re-prepping.
   const pendingPrepRef = useRef<{ prep: PrepPayload; signal: AbortSignal } | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("single");
-  const [isAskAiOpen, setIsAskAiOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"single" | "scanner">("single");
+
   const [macroText, setMacroText] = useState<string | null>(null);
   const [macroStatus, setMacroStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   // Mirror of macroText for runAnalysis to read without taking macroText as a
@@ -368,21 +340,9 @@ export default function Page() {
     dispatch({ type: "verdict_done", verdict: { ...verdictRes.verdict, panels: { ...summaries } } });
   }, []);
 
-  const runAnalysis = useCallback(async (rawTicker: string, opts?: { allowCache?: boolean }) => {
+  const runAnalysis = useCallback(async (rawTicker: string) => {
     const t = rawTicker.trim();
     if (!t) return;
-
-    // Cache hit is opt-in so the Single search bar always refetches; only the
-    // URL-ticker hydration on mount sets allowCache=true.
-    if (opts?.allowCache) {
-      const cached = loadBatchResult(t);
-      if (cached) {
-        abortRef.current?.abort();
-        abortRef.current = null;
-        dispatch({ type: "hydrate_from_cache", payload: cached });
-        return;
-      }
-    }
 
     abortRef.current?.abort();
     abortRef.current = new AbortController();
@@ -438,18 +398,8 @@ export default function Page() {
     [runAnalysis, state.tickerInput],
   );
 
-  const sendToBatch = useCallback((tickers: string[]) => {
-    // Hand off via sessionStorage so BatchView reads the new tickers via its
-    // own session-restore path on mount (no prop drilling + no Effect-from-prop
-    // anti-pattern in the consumer).
-    saveBatchSession({ input: tickers.join(", "), rows: [] });
-    setActiveTab("batch");
-  }, []);
-
-  const changeTab = useCallback((next: TabKey) => {
+  const changeTab = useCallback((next: "single" | "scanner") => {
     setActiveTab((prev) => {
-      // Cancel in-flight Single-tab work when the user switches away — the
-      // user doesn't see the result anyway, and continuing wastes LLM tokens.
       if (prev === "single" && next !== "single") {
         abortRef.current?.abort();
         abortRef.current = null;
@@ -458,22 +408,16 @@ export default function Page() {
     });
   }, []);
 
-  // New-tab landing from a Batch card click: the URL carries ?ticker=, and
-  // sessionStorage was inherited from the opener, so we hydrate Single from
-  // cache without a refetch.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const initialTicker = params.get("ticker");
     if (!initialTicker) return;
     dispatch({ type: "set_input", v: initialTicker });
-    void runAnalysis(initialTicker, { allowCache: true });
+    void runAnalysis(initialTicker);
   }, [runAnalysis]);
 
   const heroData = useMemo<Verdict | null>(() => state.verdict, [state.verdict]);
-  const askAiTicker = (state.ticker || state.tickerInput || "").trim();
-  const askAiAvailable = activeTab === "single" && askAiTicker.length > 0;
-  const showAside = activeTab === "single";
 
   return (
     <div className={styles.shell}>
@@ -485,10 +429,8 @@ export default function Page() {
         authStatus={authStatus}
         activeTab={activeTab}
         onTabChange={changeTab}
-        onOpenAskAi={() => setIsAskAiOpen(true)}
-        askAiAvailable={askAiAvailable}
       />
-      <div className={`${styles.body} ${showAside ? styles.bodyWithAside : ""}`}>
+      <div className={styles.body}>
         <LeftRail
           portfolio={state.portfolio}
           heldGroups={state.heldGroups}
@@ -500,8 +442,7 @@ export default function Page() {
         />
         <main className={`${styles.main} scrollbar-slim`}>
           <div className={styles.mainInner}>
-            {activeTab === "scanner" && <ScannerView onSendToBatch={sendToBatch} />}
-            {activeTab === "batch" && <BatchView />}
+            {activeTab === "scanner" && <ScannerView />}
             {activeTab === "single" && (
               <>
             {state.snapshot ? (
@@ -622,23 +563,7 @@ export default function Page() {
             )}
           </div>
         </main>
-        {showAside && (
-          <aside className={styles.askAiAside}>
-            <AskAI ticker={askAiTicker} mode="inline" />
-          </aside>
-        )}
       </div>
-      {/* Drawer is always mounted so the slide-out transition can play.
-          It only opens when the user taps the topbar button (which itself is
-          only visible below 1280px via CSS). */}
-      {showAside && (
-        <AskAI
-          ticker={askAiTicker}
-          mode="drawer"
-          isOpen={isAskAiOpen}
-          onClose={() => setIsAskAiOpen(false)}
-        />
-      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import type { FormEvent } from "react";
 import styles from "../page.module.css";
-import { IconSearch, IconSparkle } from "./icons";
+import { IconSearch } from "./icons";
 
 export type AuthStatus = {
   ok: boolean;
@@ -11,12 +11,11 @@ export type AuthStatus = {
   competing: boolean;
 } | null;
 
-export type TabKey = "single" | "scanner" | "batch";
+export type TabKey = "single" | "scanner";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "single", label: "Single" },
   { key: "scanner", label: "Scanner" },
-  { key: "batch", label: "Batch Analyze" },
 ];
 
 export function Topbar({
@@ -26,8 +25,6 @@ export function Topbar({
   loading,
   activeTab,
   onTabChange,
-  onOpenAskAi,
-  askAiAvailable,
 }: {
   ticker: string;
   setTicker: (s: string) => void;
@@ -36,8 +33,6 @@ export function Topbar({
   authStatus: AuthStatus;
   activeTab: TabKey;
   onTabChange: (t: TabKey) => void;
-  onOpenAskAi: () => void;
-  askAiAvailable: boolean;
 }) {
   return (
     <header className={styles.topbar}>
@@ -75,18 +70,6 @@ export function Topbar({
       ) : (
         <span />
       )}
-      {/* Button is only visible below 1280px (CSS-controlled); on desktop the
-          inline Ask AI panel makes it redundant. */}
-      <button
-        type="button"
-        className={styles.topbarAskAi}
-        onClick={onOpenAskAi}
-        disabled={!askAiAvailable}
-        aria-label="Open Ask AI"
-      >
-        <IconSparkle />
-        Ask AI
-      </button>
     </header>
   );
 }
