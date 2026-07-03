@@ -122,56 +122,6 @@
   min-height: 0;
 }
 
-/* On wide screens the Ask AI panel sits inline as a third column. Below this
-   threshold the panel is rendered as a drawer instead — see AskAI.module.css. */
-@media (min-width: 1280px) {
-  .body.bodyWithAside {
-    grid-template-columns: 256px 1fr 380px;
-  }
-}
-
-.askAiAside {
-  min-width: 0;
-  min-height: 0;
-  display: none;
-}
-@media (min-width: 1280px) {
-  .askAiAside {
-    display: flex;
-    /* Stay viewport-bound regardless of how tall the main column grows.
-       align-self: start so the grid row can keep its auto height while the
-       aside itself caps at one viewport, sticky so it follows the user
-       past the topbar but never extends past the bottom of the screen. */
-    position: sticky;
-    top: var(--topbar-height);
-    align-self: start;
-    height: calc(100vh - var(--topbar-height));
-    max-height: calc(100vh - var(--topbar-height));
-  }
-}
-
-.topbarAskAi {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  height: 30px;
-  border-radius: var(--radius);
-  background: var(--primary-container);
-  border: 1px solid var(--primary);
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: filter 120ms ease;
-}
-.topbarAskAi:hover { filter: brightness(1.18); }
-@media (min-width: 1280px) {
-  .topbarAskAi {
-    display: none;
-  }
-}
 
 .leftRail {
   border-right: 1px solid var(--outline-variant);
@@ -1694,202 +1644,24 @@
   border-color: var(--outline-variant);
 }
 
-/* ----- Batch Analyze view ----- */
-.batchWrap {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.batchHeader {
+/* ----- Scanner view ----- */
+.scannerHeader {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.batchHeader h1 {
+.scannerHeader h1 {
   font-family: var(--font-work-sans), sans-serif;
   font-weight: 700;
   font-size: 22px;
   letter-spacing: 0.02em;
 }
-.batchHeader p {
+.scannerHeader p {
   color: var(--on-surface-variant);
   font-size: 13px;
   max-width: 760px;
 }
 
-.batchInputCard {
-  background: var(--surface-container);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.batchInputLabel {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--on-surface-variant);
-}
-
-.batchInput {
-  width: 100%;
-  resize: vertical;
-  min-height: 64px;
-  padding: 10px 12px;
-  background: var(--surface-container-low);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius);
-  color: var(--on-surface);
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.4;
-}
-.batchInput:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(190, 198, 224, 0.12);
-}
-
-.batchInputFooter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.batchInputCount {
-  font-size: 12px;
-  color: var(--on-surface-variant);
-}
-.batchInputActions {
-  display: flex;
-  gap: 8px;
-}
-
-.batchGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.batchCard {
-  appearance: none;
-  text-align: left;
-  background: var(--surface-container);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  color: var(--on-surface);
-  font-family: inherit;
-  cursor: default;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-.batchCardClickable {
-  cursor: pointer;
-}
-.batchCardClickable:hover {
-  border-color: var(--primary);
-  background: var(--surface-container-high);
-}
-
-.batchCardHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.batchCardTicker {
-  font-family: var(--font-work-sans), sans-serif;
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.02em;
-}
-.batchCardStatus {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 2px 8px;
-  border-radius: 999px;
-}
-.statusRunning {
-  background: rgba(190, 198, 224, 0.12);
-  color: var(--on-surface-variant);
-}
-.statusDone {
-  background: rgba(46, 204, 113, 0.18);
-  color: var(--bullish);
-}
-.statusError {
-  background: rgba(231, 76, 60, 0.18);
-  color: var(--bearish);
-}
-
-.batchCardBody {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.batchCardStage {
-  font-size: 12px;
-  color: var(--on-surface-variant);
-}
-.batchCardScore {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding-top: 6px;
-  border-top: 1px solid var(--outline-variant);
-}
-.batchCardScoreLabel {
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--on-surface-variant);
-}
-.batchCardScoreValue {
-  font-family: var(--font-work-sans), sans-serif;
-  font-weight: 700;
-  font-size: 22px;
-  color: var(--on-surface);
-  font-variant-numeric: tabular-nums lining-nums;
-}
-.batchCardError {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--bearish);
-  line-height: 1.35;
-}
-.batchCardRetryBtn {
-  align-self: flex-start;
-  padding: 3px 10px;
-  border-radius: var(--radius);
-  background: transparent;
-  border: 1px solid var(--bearish);
-  color: var(--bearish);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: background 120ms ease;
-}
-.batchCardRetryBtn:hover:not(:disabled) {
-  background: rgba(231, 76, 60, 0.12);
-}
-.batchCardRetryBtn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* ----- Scanner view ----- */
 .scannerFilters {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

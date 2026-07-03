@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { PANEL_KEYS, type PanelKey } from "../../../../lib/batch/protocol";
+import { PANEL_KEYS, type PanelKey } from "../../../../lib/types";
 import { panelError, runPanel } from "../../../../lib/gemini/runPanel";
 import { normalizeSymbol, ticker as toTicker } from "../../../../lib/symbol";
 

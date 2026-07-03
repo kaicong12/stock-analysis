@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import styles from "../page.module.css";
 import type { JournalStrategy, JournalTradeWithLegs } from "../../lib/journal/types";
 
@@ -389,10 +389,7 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
   const [expiry, setExpiry] = useState("");
   const [netCredit, setNetCredit] = useState<string>("");
   const [maxRisk, setMaxRisk] = useState<string>("");
-  // Track whether the user has manually typed into the Max Risk field. Until
-  // they do, we mirror the auto-calculated value into the input so it visibly
-  // populates as legs + credit are entered.
-  const maxRiskTouchedRef = useRef(false);
+  const [maxRiskTouched, setMaxRiskTouched] = useState(false);
   const [contracts, setContracts] = useState<string>("1");
   const [thesis, setThesis] = useState("");
   const [mgmtProfit, setMgmtProfit] = useState("");
@@ -465,20 +462,16 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
     return { calcBE: calculatedBE, calcROC, calcNetDelta, calculatedMaxRisk };
   }, [strategy, legs, netCredit]);
 
-  useEffect(() => {
-    if (maxRiskTouchedRef.current) return;
-    if (calcs.calculatedMaxRisk !== null && calcs.calculatedMaxRisk > 0) {
-      setMaxRisk(calcs.calculatedMaxRisk.toFixed(2));
-    } else {
-      setMaxRisk("");
-    }
-  }, [calcs.calculatedMaxRisk]);
+  const displayedMaxRisk = maxRiskTouched
+    ? maxRisk
+    : (calcs.calculatedMaxRisk !== null && calcs.calculatedMaxRisk > 0)
+      ? calcs.calculatedMaxRisk.toFixed(2)
+      : "";
 
   function onStrategyChange(s: JournalStrategy) {
     setStrategy(s);
     setLegs(defaultLegsForStrategy(s));
-    // New strategy invalidates any prior manual override.
-    maxRiskTouchedRef.current = false;
+    setMaxRiskTouched(false);
   }
 
   const [nowMs] = useState(() => Date.now());
@@ -498,7 +491,7 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
     if (!ticker.trim()) return setErr("ticker required");
     if (!expiry || !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) return setErr("expiry must be YYYY-MM-DD");
     const nc = Number(netCredit);
-    const resolvedMaxRisk = maxRisk.trim() ? Number(maxRisk) : calcs.calculatedMaxRisk;
+    const resolvedMaxRisk = displayedMaxRisk.trim() ? Number(displayedMaxRisk) : calcs.calculatedMaxRisk;
     const mr = resolvedMaxRisk;
     const ct = Number(contracts);
     if (!Number.isFinite(nc)) return setErr("netCredit must be a number");
@@ -597,9 +590,9 @@ function NewTradeForm(props: { onCancel: () => void; onCreated: () => void }) {
           className={styles.journalInput}
           type="number"
           step="0.01"
-          value={maxRisk}
+          value={displayedMaxRisk}
           onChange={(e) => {
-            maxRiskTouchedRef.current = true;
+            setMaxRiskTouched(true);
             setMaxRisk(e.target.value);
           }}
           placeholder={calcs.calculatedMaxRisk ? calcs.calculatedMaxRisk.toFixed(2) : ""}

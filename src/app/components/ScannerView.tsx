@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import styles from "../page.module.css";
 import type { ScanType } from "../../lib/ibkr/scanner";
 
@@ -21,13 +21,8 @@ function clamp(value: number, min: number, max: number = Infinity): number {
   return Math.max(min, Math.min(max, value));
 }
 
-export function ScannerView({
-  onSendToBatch,
-}: {
-  onSendToBatch: (tickers: string[]) => void;
-}) {
+export function ScannerView() {
   const [rows, setRows] = useState<ScannerRow[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +37,6 @@ export function ScannerView({
   const run = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setSelected(new Set());
     const parsedSize = clamp(Number(size) || 50, SIZE_FLOOR, SIZE_CEIL);
     const parsedMinPrice = clamp(Number(minPrice) || MIN_PRICE_FLOOR, MIN_PRICE_FLOOR);
     const parsedMinOptVolume = clamp(
@@ -75,36 +69,10 @@ export function ScannerView({
     }
   }, [size, scanType, minPrice, minOptVolume, minIvPercentile, minIvRank]);
 
-  const toggle = useCallback((symbol: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(symbol)) next.delete(symbol);
-      else next.add(symbol);
-      return next;
-    });
-  }, []);
-
-  const selectAll = useCallback(() => {
-    setSelected(new Set(rows.map((r) => r.symbol)));
-  }, [rows]);
-
-  const clearSelection = useCallback(() => setSelected(new Set()), []);
-
-  const send = useCallback(() => {
-    if (selected.size === 0) return;
-    // Preserve scanner row order (IBKR's native ranking).
-    const ordered = rows.map((r) => r.symbol).filter((s) => selected.has(s));
-    onSendToBatch(ordered);
-  }, [rows, selected, onSendToBatch]);
-
-  const allSelected = useMemo(
-    () => rows.length > 0 && selected.size === rows.length,
-    [rows, selected],
-  );
 
   return (
     <div className={styles.scannerWrap}>
-      <header className={styles.batchHeader}>
+      <header className={styles.scannerHeader}>
         <h1 className="font-display">Scanner</h1>
         <p>
           Large-cap US majors screened for options volatility candidates. Daily volume &gt; 500k
@@ -216,21 +184,9 @@ export function ScannerView({
           {loading ? "Scanning…" : "Scan"}
         </button>
         {rows.length > 0 && (
-          <>
-            <button className={styles.btnGhost} onClick={allSelected ? clearSelection : selectAll}>
-              {allSelected ? "Clear" : "Select all"}
-            </button>
-            <span className={styles.scannerCount}>
-              {selected.size} / {rows.length} selected
-            </span>
-            <button
-              className={styles.btnPrimary}
-              onClick={send}
-              disabled={selected.size === 0}
-            >
-              Send to Batch Analyze →
-            </button>
-          </>
+          <span className={styles.scannerCount}>
+            {rows.length} result{rows.length !== 1 ? "s" : ""}
+          </span>
         )}
       </section>
 
@@ -246,7 +202,6 @@ export function ScannerView({
           <table className={styles.scannerTable}>
             <thead>
               <tr>
-                <th style={{ width: 32 }}></th>
                 <th>Symbol</th>
                 <th>Name</th>
                 <th style={{ width: 80, textAlign: "right" }}>Rank</th>
@@ -254,19 +209,7 @@ export function ScannerView({
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr
-                  key={r.conid}
-                  className={selected.has(r.symbol) ? styles.scannerRowSelected : undefined}
-                  onClick={() => toggle(r.symbol)}
-                >
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selected.has(r.symbol)}
-                      onChange={() => toggle(r.symbol)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </td>
+                <tr key={r.conid}>
                   <td className={styles.scannerSymbol}>{r.symbol}</td>
                   <td className={styles.scannerName}>{r.name}</td>
                   <td style={{ textAlign: "right" }}>#{i + 1}</td>
