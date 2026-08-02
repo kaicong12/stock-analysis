@@ -17,12 +17,6 @@ export const env = {
   // Optional referer headers OpenRouter uses for free-tier accounting / dashboard attribution.
   openrouterAppUrl: process.env.OPENROUTER_APP_URL ?? "http://localhost:3000",
   openrouterAppTitle: process.env.OPENROUTER_APP_TITLE ?? "Alpha Insights",
-  ibkrBaseUrl: process.env.IBKR_BASE_URL ?? "https://localhost:5001",
-  // Flex Web Service is a separate IBKR endpoint (not the gateway). Both vars
-  // are optional at module load so unrelated routes don't fail to boot when
-  // they're missing — the sync layer validates at call time.
-  ibkrFlexToken: process.env.IBKR_FLEX_TOKEN ?? "",
-  ibkrFlexQueryId: process.env.IBKR_FLEX_QUERY_ID ?? "",
   pyBackendUrl: process.env.PYBACKEND_URL ?? "http://localhost:8765",
   // Massive (ex-Polygon.io) — SEC Form 4 insider transactions. Optional at module
   // load; the insider client degrades to an empty panel when the key is absent.

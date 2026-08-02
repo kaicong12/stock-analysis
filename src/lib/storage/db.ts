@@ -19,111 +19,17 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
   // request and not persisted. The tables were dropped manually; this slot
   // stays as a no-op so user_version sequencing is preserved across upgrades.
   () => {},
-  (db) => {
-    db.exec(`
-      CREATE TABLE journal_trades (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        ticker          TEXT NOT NULL,
-        strategy        TEXT NOT NULL,
-        status          TEXT NOT NULL CHECK (status IN ('open','closed')) DEFAULT 'open',
-        expiry          TEXT NOT NULL,
-        dte_at_entry    INTEGER NOT NULL,
-        iv_rank         REAL,
-        net_credit      REAL NOT NULL,
-        max_risk        REAL NOT NULL,
-        contracts       INTEGER NOT NULL DEFAULT 1,
-        thesis          TEXT NOT NULL,
-        mgmt_profit     TEXT NOT NULL,
-        mgmt_loss       TEXT NOT NULL,
-        closed_at       TEXT,
-        realized_pnl    REAL,
-        exit_reason     TEXT,
-        created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE journal_legs (
-        id             INTEGER PRIMARY KEY AUTOINCREMENT,
-        trade_id       INTEGER NOT NULL REFERENCES journal_trades(id) ON DELETE CASCADE,
-        side           TEXT NOT NULL CHECK (side IN ('C','P')),
-        action         TEXT NOT NULL CHECK (action IN ('BUY','SELL')),
-        strike         REAL NOT NULL,
-        delta_at_entry REAL,
-        conid          INTEGER
-      );
-
-      CREATE INDEX idx_journal_trades_ticker_status ON journal_trades (ticker, status);
-      CREATE INDEX idx_journal_legs_trade           ON journal_legs (trade_id);
-    `);
-  },
-  (db) => {
-    // Track the IBKR order ids that opened and closed the trade so the UI can
-    // poll fill status and so we can reconcile journal entries against the
-    // gateway's order history.
-    db.exec(`
-      ALTER TABLE journal_trades ADD COLUMN ibkr_open_order_id  TEXT;
-      ALTER TABLE journal_trades ADD COLUMN ibkr_close_order_id TEXT;
-    `);
-  },
-  (db) => {
-    db.exec(`ALTER TABLE journal_trades DROP COLUMN iv_rank;`);
-  },
-  (db) => {
-    // Tables for the IBKR Flex Query trade-sync pipeline. ibkr_trades stores
-    // one row per executed fill, keyed by Flex's globally-unique transactionID
-    // so the sync can be re-run any number of times safely. ibkr_flex_sync
-    // tracks the last run so concurrent client triggers can short-circuit and
-    // the UI can surface a staleness warning if the daily pull stops working.
-    db.exec(`
-      CREATE TABLE ibkr_trades (
-        transaction_id     TEXT PRIMARY KEY,
-        account_id         TEXT NOT NULL,
-        trade_date         TEXT NOT NULL,
-        asset_category     TEXT NOT NULL,
-        symbol             TEXT NOT NULL,
-        description        TEXT,
-        conid              INTEGER,
-        strike             REAL,
-        expiry             TEXT,
-        put_call           TEXT,
-        multiplier         INTEGER,
-        transaction_type   TEXT NOT NULL,
-        buy_sell           TEXT NOT NULL,
-        quantity           REAL NOT NULL,
-        trade_price        REAL,
-        proceeds           REAL,
-        ib_commission      REAL,
-        net_cash           REAL,
-        open_close         TEXT,
-        fifo_pnl_realized  REAL NOT NULL DEFAULT 0,
-        mtm_pnl            REAL,
-        currency           TEXT NOT NULL,
-        ib_order_id        TEXT,
-        order_time         TEXT,
-        raw_json           TEXT NOT NULL,
-        inserted_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE INDEX idx_ibkr_trades_date  ON ibkr_trades(trade_date);
-      CREATE INDEX idx_ibkr_trades_class ON ibkr_trades(asset_category, trade_date);
-
-      CREATE TABLE ibkr_flex_sync (
-        query_id         TEXT PRIMARY KEY,
-        last_success_at  TEXT,
-        last_window_to   TEXT,
-        last_attempt_at  TEXT,
-        last_error       TEXT,
-        trades_seen      INTEGER NOT NULL DEFAULT 0
-      );
-    `);
-  },
-  (db) => {
-    db.exec(`ALTER TABLE ibkr_trades ADD COLUMN fx_rate_to_base REAL;`);
-  },
-  (db) => {
-    db.exec(`ALTER TABLE ibkr_trades ADD COLUMN date_time TEXT;`);
-  },
+  // Slots 1-6 built the trade journal (journal_trades / journal_legs) and the
+  // IBKR Flex trade-sync pipeline (ibkr_trades / ibkr_flex_sync). Both features
+  // are gone — the broker integration was removed and the journal with it. The
+  // slots are no-ops rather than deletions so user_version sequencing survives;
+  // the final migration drops whatever an existing DB still carries.
+  () => {},
+  () => {},
+  () => {},
+  () => {},
+  () => {},
+  () => {},
   (db) => {
     // Daily closes cache for the python sidecar's HV computation. The sidecar
     // (a separate process) reads + writes these tables directly via sqlite3 —
@@ -146,6 +52,18 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       );
     `);
   },
+  (db) => {
+    // Drop the journal + IBKR Flex tables. A DB created before this migration
+    // still has them (slots 1-6 built them and are now no-ops); a fresh DB never
+    // created them, hence IF EXISTS. journal_legs goes first — it has an FK onto
+    // journal_trades.
+    db.exec(`
+      DROP TABLE IF EXISTS journal_legs;
+      DROP TABLE IF EXISTS journal_trades;
+      DROP TABLE IF EXISTS ibkr_trades;
+      DROP TABLE IF EXISTS ibkr_flex_sync;
+    `);
+  },
 ];
 
 function runMigrations(db: Database.Database): void {
@@ -161,10 +79,10 @@ function runMigrations(db: Database.Database): void {
 
 // Stash the handle on globalThis so Next.js dev HMR doesn't reopen the
 // connection on every module reload.
-const globalForDb = globalThis as unknown as { __ibkrDb?: Database.Database };
+const globalForDb = globalThis as unknown as { __appDb?: Database.Database };
 
 export function getDb(): Database.Database {
-  if (globalForDb.__ibkrDb) return globalForDb.__ibkrDb;
+  if (globalForDb.__appDb) return globalForDb.__appDb;
   if (!existsSync(DB_DIR)) mkdirSync(DB_DIR, { recursive: true });
   const db = new Database(DB_FILE);
   // WAL: concurrent readers + single writer; durable on SIGKILL. NORMAL fsync
@@ -174,7 +92,7 @@ export function getDb(): Database.Database {
   db.pragma("synchronous = NORMAL");
   db.pragma("foreign_keys = ON");
   runMigrations(db);
-  globalForDb.__ibkrDb = db;
+  globalForDb.__appDb = db;
   process.once("exit", () => {
     try { db.close(); } catch { /* already closed */ }
   });

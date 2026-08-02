@@ -39,10 +39,6 @@ yarn-error.log*
 # Local SQLite (trade journal + Flex trade-history sync). Contains user state.
 /data/
 
-# IBKR Client Portal Gateway distribution (third-party binaries; download separately)
-/clientportal.gw/
-/clientportal.gw.zip
-
 # vercel
 .vercel
 

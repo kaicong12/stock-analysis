@@ -1,6 +1,3 @@
-import type { HeldGroup } from "./positions/types";
-export type { HeldGroup, HeldGroupKind, HeldSuggestion, HeldGroupTriggers } from "./positions/types";
-
 export type AnomalyKind = "capital" | "technical" | "derivatives";
 
 export interface AnomalyResult {
@@ -116,11 +113,10 @@ export interface ExpectedMove {
   lower: number;        // spot - move (1-SD lower bound)
 }
 
-// Live levels snapshot for a single underlying — the data behind the held-options
-// "is my short strike still safe?" panel. expectedMove + support/resistance are
-// recomputed at request time because they DRIFT as spot/IV/DTE move; they're then
-// compared client-side against the position's FIXED short strikes. The strike is
-// the anchor (from the IBKR position); these moving bounds are what cross it.
+// Live levels snapshot for a single underlying — the data behind the VerdictCard
+// what-if calculator. expectedMove + support/resistance are recomputed at request
+// time because they DRIFT as spot/IV/DTE move; the user compares them against the
+// short strike they're considering, to check it sits outside both bounds.
 export interface LevelsSnapshot {
   symbol: string;
   spot: number | null;
@@ -297,70 +293,6 @@ export interface FundamentalsResult {
   data: FundamentalsData;
 }
 
-export type Currency = "SGD" | "USD" | "HKD" | "BASE" | string;
-
-export interface Position {
-  acctId: string;
-  conid: number;
-  contractDesc: string;
-  position: number;
-  avgCost: number;
-  avgPrice: number;
-  mktPrice: number;
-  mktValue: number;
-  unrealizedPnl: number;
-  realizedPnl: number;
-  currency: Currency;
-  assetClass: string;
-  expiry?: string | null;
-  strike?: number | null;
-  putOrCall?: string | null;
-  multiplier?: string | null;
-  underlyingConid?: number;
-  // Populated by enrichWithLiveGreeks() for OPT positions only — drives the
-  // verdict's defensive-roll logic ("your short put is now Δ -0.50").
-  liveGreeks?: {
-    delta: number | null;
-    theta: number | null;
-    vega: number | null;
-    iv: number | null;
-  };
-}
-
-export interface LedgerEntry {
-  currency: Currency;
-  cashBalance: number;
-  netLiquidationValue: number;
-  unrealizedPnl: number;
-  realizedPnl: number;
-  exchangeRate: number;
-  stockMarketValue: number;
-  optionMarketValue: number;
-}
-
-export interface PortfolioSummary {
-  accountId: string;
-  baseCurrency: Currency;
-  netLiquidation: number;
-  totalCash: number;
-  availableFunds: number;
-  buyingPower: number;
-  initMarginReq: number;
-  maintMarginReq: number;
-  grossPositionValue: number;
-  rawTimestamp: number;
-}
-
-export interface Portfolio {
-  accountId: string;
-  accountType: string;
-  isPaper: boolean;
-  baseCurrency: Currency;
-  summary: PortfolioSummary;
-  positions: Position[];
-  ledger: LedgerEntry[];
-}
-
 // ----- Per-panel summary (output of each per-skill analyzer) -----
 
 export type PanelDirection = "bullish" | "bearish" | "neutral" | "mixed" | "n/a";
@@ -507,27 +439,25 @@ export interface PanelSummary {
 
 export type SleeveDirection = "bullish" | "bearish" | "neutral";
 
+// The app has no view of what the user actually holds — there is no broker
+// feed. Management actions (INCREASE / TRIM / HOLD / CLOSE / ROLL_OUT) would
+// require knowing the current position, so they are deliberately NOT
+// representable: the verdict is an entry-or-pass call on a fresh position.
 export type StockAction =
-  | "OPEN"        // No position today; take a fresh directional position (direction tells the side).
-  | "INCREASE"    // Add to existing stock position.
-  | "TRIM"        // Sell part of existing stock position.
-  | "HOLD"        // Keep stock position unchanged.
-  | "CLOSE"       // Exit stock position entirely.
-  | "PASS";       // No position, no entry — skip the stock sleeve.
+  | "OPEN"        // Take a fresh directional position (direction tells the side).
+  | "PASS";       // No entry — skip the stock sleeve.
 
 export type DerivativesAction =
   | "SELL_PUT_SPREAD"        // Bullish CREDIT spread aka bull put spread (short higher put + long lower put). Cash-light CSP alternative.
   | "SELL_CALL_SPREAD"       // Bearish CREDIT spread aka bear call spread (short lower call + long higher call). No-shares covered-call alternative.
-  | "SELL_COVERED_CALL"      // Income on existing stock holding (≥100 sh per contract).
-  | "SELL_CASH_SECURED_PUT"  // Income / get-assigned-cheap, backed by available cash.
+  | "SELL_COVERED_CALL"      // Income on stock the user already holds (≥100 sh per contract) — prerequisite is NOT verified, the instruction must state it.
+  | "SELL_CASH_SECURED_PUT"  // Income / get-assigned-cheap, backed by cash — fundability is NOT verified, the instruction must state it.
   | "IRON_CONDOR"            // Neutral CREDIT — bull put spread + bear call spread, same expiry. SHORT vega on both wings.
-  | "ROLL_OUT"               // Defensive: close held leg(s), open later-expiry replacement(s) for net credit.
-  | "INCREASE"               // Add to an existing option position.
-  | "TRIM"                   // Sell part of an existing option position.
-  | "HOLD"                   // Keep option position unchanged.
-  | "CLOSE"                  // Exit option position entirely.
   | "PASS";                  // Skip the derivatives sleeve.
 
+// No NAV / cash / position data reaches the synth, so there is no size field
+// here: the verdict describes the structure and the management plan, and the
+// user sizes the trade at their broker.
 export interface PositionAdjustment {
   instruction: string;
   sizing?: string;
@@ -535,11 +465,6 @@ export interface PositionAdjustment {
   stop?: string;
   target?: string;
   timeframe?: string;
-  // Machine-readable size emitted by the synth model. The server uses these
-  // to compute the actual % NAV and append a deterministic sizing footer to
-  // `instruction`. The model is no longer trusted to write "~X% NAV" prose.
-  sizeShares?: number;
-  sizeContracts?: number;
 }
 
 export interface SleeveVerdict<A extends string> {
@@ -595,26 +520,6 @@ export interface DashboardData {
   news: NewsResult | null;
   sentiment: CommentSentimentResult | null;
   fundamentals: FundamentalsResult | null;
-  portfolio: Portfolio | null;
-  heldPositions: Position[];
-  heldGroups: HeldGroup[];
   verdict: Verdict | null;
   errors: { source: string; message: string }[];
-}
-
-// ----- Trade-logging modal payloads -----
-//
-// The repo used to place orders directly via IBKR's Client Portal. That code
-// is gone — the user places trades in IBKR/TWS directly (more trustworthy
-// quotes) and then comes back to log the trade in the journal. These types
-// describe the input to that journal-logging flow.
-
-// A leg of a closing transaction the user is about to log. Ratio is signed:
-// +1 = was closed by BUY, -1 = was closed by SELL.
-export interface JournalCloseLeg {
-  side: "C" | "P";
-  strike: number;
-  expiry: string;            // ISO YYYY-MM-DD
-  ratio: 1 | -1;
-  lastPrice?: number | null;
 }
