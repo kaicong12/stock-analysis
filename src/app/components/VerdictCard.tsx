@@ -15,10 +15,8 @@ import type {
 import {
   IconArrowDown,
   IconArrowUp,
-  IconCloseX,
   IconHold,
   IconPlay,
-  IconRoll,
   IconSparkle,
 } from "./icons";
 
@@ -34,12 +32,10 @@ function confidenceInterpretation(c: number): string {
   return "Coin-flip — panels disagree, no edge";
 }
 
+// Entry-or-pass only — the app has no portfolio feed, so it can't advise on
+// managing a position it can't see. See the action unions in lib/types.ts.
 const STOCK_ACTION_META: Record<StockAction, { label: string; baseIcon: IconCmp }> = {
   OPEN: { label: "Open Position", baseIcon: IconArrowUp },
-  INCREASE: { label: "Increase", baseIcon: IconArrowUp },
-  TRIM: { label: "Trim", baseIcon: IconArrowDown },
-  HOLD: { label: "Hold", baseIcon: IconHold },
-  CLOSE: { label: "Close", baseIcon: IconCloseX },
   PASS: { label: "Pass", baseIcon: IconHold },
 };
 
@@ -49,11 +45,6 @@ const DERIVATIVES_ACTION_META: Record<DerivativesAction, { label: string; baseIc
   SELL_COVERED_CALL: { label: "Sell Covered Call", baseIcon: IconHold, defaultTone: "neutral" },
   SELL_CASH_SECURED_PUT: { label: "Sell Cash-Secured Put", baseIcon: IconHold, defaultTone: "neutral" },
   IRON_CONDOR: { label: "Iron Condor", baseIcon: IconHold, defaultTone: "neutral" },
-  ROLL_OUT: { label: "Roll Out", baseIcon: IconRoll, defaultTone: "neutral" },
-  INCREASE: { label: "Increase", baseIcon: IconArrowUp, defaultTone: "bullish" },
-  TRIM: { label: "Trim", baseIcon: IconArrowDown, defaultTone: "bearish" },
-  HOLD: { label: "Hold", baseIcon: IconHold, defaultTone: "neutral" },
-  CLOSE: { label: "Close", baseIcon: IconCloseX, defaultTone: "bearish" },
   PASS: { label: "Pass", baseIcon: IconHold, defaultTone: "neutral" },
 };
 
@@ -109,10 +100,8 @@ export function VerdictCard({ data }: { data: DashboardData }) {
 
 function StockSleeve({ sleeve }: { sleeve: SleeveVerdict<StockAction> }) {
   const meta = STOCK_ACTION_META[sleeve.action];
-  // OPEN/INCREASE/HOLD/PASS take their tone from direction; TRIM/CLOSE are always bearish-flavored exits.
-  const tone: Tone = sleeve.action === "TRIM" || sleeve.action === "CLOSE"
-    ? "bearish"
-    : DIRECTION_TONE[sleeve.direction];
+  // Both OPEN and PASS take their tone from the sleeve's directional bias.
+  const tone: Tone = DIRECTION_TONE[sleeve.direction];
   const Icon = meta.baseIcon;
   return (
     <div className={styles.sleeve}>
@@ -139,9 +128,9 @@ function DerivativesSleeve({
   ticker: string;
 }) {
   const meta = DERIVATIVES_ACTION_META[sleeve.action];
-  const tone: Tone = (sleeve.action === "INCREASE" || sleeve.action === "HOLD" || sleeve.action === "PASS")
-    ? DIRECTION_TONE[sleeve.direction]
-    : meta.defaultTone;
+  // PASS has no structure of its own, so it reads off the directional bias;
+  // every entry action carries its own inherent tone.
+  const tone: Tone = sleeve.action === "PASS" ? DIRECTION_TONE[sleeve.direction] : meta.defaultTone;
   const Icon = meta.baseIcon;
   return (
     <div className={styles.sleeve}>
@@ -159,10 +148,10 @@ function DerivativesSleeve({
   );
 }
 
-// What-if expected-move calculator for a NEW spread you're about to open on IBKR.
-// Spot + support/resistance come from /api/levels (both IV/DTE-independent); the
-// expected move is computed CLIENT-SIDE from the IV and DTE the user types, so it
-// updates live as they tune the expiry they're eyeing. The conservative edge: a
+// What-if expected-move calculator for a NEW spread you're about to open at your
+// broker. Spot + support/resistance come from /api/levels (both IV/DTE-independent);
+// the expected move is computed CLIENT-SIDE from the IV and DTE the user types, so
+// it updates live as they tune the expiry they're eyeing. The conservative edge: a
 // short put goes below BOTH support and EM.lower; a short call above BOTH
 // resistance and EM.upper — whichever is further out wins.
 function ExpectedMoveWhatIf({ symbol, ticker }: { symbol: string; ticker: string }) {
@@ -219,7 +208,7 @@ function ExpectedMoveWhatIf({ symbol, ticker }: { symbol: string; ticker: string
         <IconPlay /> Expected-move check — {ticker}
       </div>
       <div className={styles.whatIfSub}>
-        Enter the IV and DTE of the expiry you&apos;re eyeing on IBKR; the move is computed live.
+        Enter the IV and DTE of the expiry you&apos;re eyeing at your broker; the move is computed live.
       </div>
 
       <div className={styles.whatIfInputs}>

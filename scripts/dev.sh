@@ -8,15 +8,11 @@ if [ -f .env ]; then
   set -a; . .env; set +a
 fi
 
-IBKR_GATEWAY_DIR="${IBKR_GATEWAY_DIR:-$HOME/ibkr/clientportal.gw}"
-IBKR_PORT="${IBKR_BASE_URL##*:}"
-IBKR_PORT="${IBKR_PORT%/}"
 SIDECAR_PORT="${PYBACKEND_URL##*:}"
 SIDECAR_PORT="${SIDECAR_PORT%/}"
 OPEND_HOST="${FUTU_OPEND_HOST:-127.0.0.1}"
 OPEND_PORT="${FUTU_OPEND_PORT:-11111}"
 
-GATEWAY_PID=""
 SIDECAR_PID=""
 NEXT_PID=""
 SHUTTING_DOWN=0
@@ -59,11 +55,9 @@ cleanup() {
   echo "[dev] shutting down…"
 
   kill_tree "$NEXT_PID"
-  kill_tree "$GATEWAY_PID"
   kill_tree "$SIDECAR_PID"
 
   finalize_tree "$NEXT_PID"
-  finalize_tree "$GATEWAY_PID"
   finalize_tree "$SIDECAR_PID"
 
   echo "[dev] done."
@@ -73,28 +67,6 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
 port_in_use() { lsof -iTCP:"$1" -sTCP:LISTEN -t >/dev/null 2>&1; }
-
-# Free a TCP port by killing every process listening on it. Used at startup
-# to clear stale gateway processes that survived a prior Ctrl-C — common when
-# the laptop sleeps mid-shutdown and SIGTERM never reaches the JVM. SIGTERM
-# first, give it 2s, then SIGKILL anything that's still hanging on.
-free_port() {
-  local port="$1"
-  local label="${2:-port}"
-  local pids
-  pids=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)
-  [ -z "$pids" ] && return 0
-  echo "[$label] killing stale processes on :$port (pids: $pids)…"
-  for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
-  for _ in 1 2 3 4; do
-    pids=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)
-    [ -z "$pids" ] && return 0
-    sleep 0.5
-  done
-  pids=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)
-  for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
-  sleep 0.3
-}
 
 # ---- moomoo OpenD precheck (must be running — sidecar is useless without it) ----
 if ! opend_reachable; then
@@ -116,21 +88,6 @@ EOF
   exit 1
 fi
 echo "[opend] reachable on ${OPEND_HOST}:${OPEND_PORT}."
-
-# ---- IBKR Client Portal Gateway ----
-# Always start fresh. A gateway that survived a prior shutdown (e.g. laptop
-# sleep dropped the SIGTERM) tends to hold an expired session that returns
-# 401s on every endpoint, which is worse than no gateway at all.
-free_port "$IBKR_PORT" "ibkr"
-if [ -d "$IBKR_GATEWAY_DIR" ]; then
-  echo "[ibkr] starting gateway from $IBKR_GATEWAY_DIR …"
-  ( cd "$IBKR_GATEWAY_DIR" && exec bin/run.sh root/conf.yaml ) >"$ROOT/.dev-ibkr.log" 2>&1 &
-  GATEWAY_PID=$!
-  echo "[ibkr] pid=$GATEWAY_PID  log=.dev-ibkr.log"
-  echo "[ibkr] open https://localhost:$IBKR_PORT/ to authenticate."
-else
-  echo "[ibkr] WARNING: IBKR_GATEWAY_DIR=$IBKR_GATEWAY_DIR not found. Set it in .env or start the gateway manually."
-fi
 
 # ---- Python sidecar ----
 if port_in_use "$SIDECAR_PORT"; then

@@ -9,7 +9,6 @@ export function Hero({ data }: { data: DashboardData }) {
   const change = snap ? snap.lastPrice - snap.prevClose : 0;
   const changeCls = !snap || change === 0 ? styles.changeFlat : change > 0 ? styles.changeUp : styles.changeDown;
   const arrow = !snap || change === 0 ? "→" : change > 0 ? "↑" : "↓";
-  const isHeld = data.heldPositions.length > 0;
   const ti = data.verdict?.technicalIndicators ?? null;
   return (
     <div className={styles.hero}>
@@ -17,7 +16,6 @@ export function Hero({ data }: { data: DashboardData }) {
         <span className={styles.heroTicker + " font-display"}>{data.ticker}</span>
         {snap?.name && <span className={styles.tag}>{snap.name}</span>}
         <span className={styles.tag}>{data.symbol.split(".")[0]}</span>
-        {isHeld ? <span className={styles.heldChip}>● Held</span> : <span className={styles.unheldChip}>Watching</span>}
       </div>
       {snap ? (
         <div className={styles.heroPriceRow}>

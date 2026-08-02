@@ -8,8 +8,8 @@ export function Welcome() {
       <h2 className="font-display">Synthesis-grade analysis, on demand.</h2>
       <p>
         Type a ticker and press <kbd className={styles.welcomeKbd}>↵</kbd>. We&rsquo;ll pull capital flow,
-        technical indicators, options activity, news flow, and community sentiment from moomoo, cross-reference your IBKR portfolio,
-        and have Gemini issue a portfolio-aware verdict.
+        technical indicators, options activity, news flow, and community sentiment from moomoo, layer on
+        server-computed price action and volatility, and have Gemini issue a dual-sleeve verdict.
       </p>
       <p style={{ fontSize: 12, color: "var(--on-surface-variant)" }}>
         Examples: <code>GOOGL</code>, <code>AAPL</code>, <code>HK.00700</code>, <code>NVDA</code>. Bare tickers default to US.

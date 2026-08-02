@@ -3,24 +3,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import styles from "./page.module.css";
-import type {
-  HeldGroup,
-  PanelSummary,
-  Portfolio,
-  Position,
-  SnapshotResult,
-  Verdict,
-} from "../lib/types";
-import { classifyPortfolio } from "../lib/positions/groups";
-import { annotateGroups } from "../lib/positions/triggers";
+import type { PanelSummary, SnapshotResult, Verdict } from "../lib/types";
 import { Hero } from "./components/Hero";
-import { HeldOptionsDetail } from "./components/HeldOptionsDetail";
-import { LeftRail } from "./components/LeftRail";
 import { MacroBriefing } from "./components/MacroBriefing";
 import { Panel, PANEL_LABELS } from "./components/Panel";
-import { ScannerView } from "./components/ScannerView";
 import { SkeletonBlock, Welcome } from "./components/Welcome";
-import { Topbar, type AuthStatus } from "./components/Topbar";
+import { Topbar } from "./components/Topbar";
 import { VerdictCard } from "./components/VerdictCard";
 import {
   IconCapital,
@@ -46,9 +34,6 @@ type PrepPayload = {
   ticker: string;
   symbol: string;
   snapshot: SnapshotResult;
-  portfolio: Portfolio | null;
-  heldPositions: Position[];
-  heldGroups: HeldGroup[];
   errors: State["errors"];
   nextEarningsDate: string | null;
   earningsDaysAway: number | null;
@@ -68,9 +53,6 @@ interface State {
   topError: string | null;
   errors: { source: string; message: string }[];
   snapshot: SnapshotResult | null;
-  portfolio: Portfolio | null;
-  heldPositions: Position[];
-  heldGroups: HeldGroup[];
   panels: Record<PanelKey, PanelState>;
   verdict: Verdict | null;
   // Earnings pre-flight (from /api/prep). Drives the confirm gate.
@@ -89,8 +71,7 @@ type Action =
   | { type: "panel_done"; name: PanelKey; summary: PanelSummary; error?: string }
   | { type: "verdict_loading" }
   | { type: "verdict_done"; verdict: Verdict }
-  | { type: "verdict_error"; message: string }
-  | { type: "set_portfolio"; p: Portfolio; heldGroups: HeldGroup[] };
+  | { type: "verdict_error"; message: string };
 
 const emptyPanels: Record<PanelKey, PanelState> = PANELS.reduce(
   (acc, k) => { acc[k] = { status: "idle" }; return acc; },
@@ -105,9 +86,6 @@ const INITIAL: State = {
   topError: null,
   errors: [],
   snapshot: null,
-  portfolio: null,
-  heldPositions: [],
-  heldGroups: [],
   panels: emptyPanels,
   verdict: null,
   earningsDaysAway: null,
@@ -122,28 +100,22 @@ function reducer(state: State, a: Action): State {
       return {
         ...INITIAL,
         tickerInput: a.ticker,
-        portfolio: state.portfolio,
-        heldGroups: state.heldGroups,
         status: "prepping",
         topError: null,
       };
     case "submit_error":
       return { ...state, status: "error", topError: a.message };
     case "reset":
-      // Back to a clean idle slate, but keep the loaded portfolio/rail.
-      return { ...INITIAL, portfolio: state.portfolio, heldGroups: state.heldGroups };
+      return { ...INITIAL };
     case "earnings_gate":
-      // Earnings near — pause BEFORE the panel calls. Snapshot/portfolio are
-      // shown (so the Hero renders) but panels stay idle until the user confirms.
+      // Earnings near — pause BEFORE the panel calls. The snapshot is shown (so
+      // the Hero renders) but panels stay idle until the user confirms.
       return {
         ...state,
         status: "earnings_gate",
         ticker: a.payload.ticker,
         symbol: a.payload.symbol,
         snapshot: a.payload.snapshot,
-        portfolio: a.payload.portfolio ?? state.portfolio,
-        heldPositions: a.payload.heldPositions,
-        heldGroups: a.payload.heldGroups,
         errors: a.payload.errors,
         earningsDaysAway: a.payload.earningsDaysAway,
         nextEarningsDate: a.payload.nextEarningsDate,
@@ -155,9 +127,6 @@ function reducer(state: State, a: Action): State {
         ticker: a.payload.ticker,
         symbol: a.payload.symbol,
         snapshot: a.payload.snapshot,
-        portfolio: a.payload.portfolio ?? state.portfolio,
-        heldPositions: a.payload.heldPositions,
-        heldGroups: a.payload.heldGroups,
         errors: a.payload.errors,
         earningsDaysAway: a.payload.earningsDaysAway,
         nextEarningsDate: a.payload.nextEarningsDate,
@@ -184,14 +153,6 @@ function reducer(state: State, a: Action): State {
       return { ...state, status: "done", verdict: a.verdict };
     case "verdict_error":
       return { ...state, status: "error", topError: a.message };
-    case "set_portfolio":
-      // Only overwrite heldGroups if a search hasn't already enriched them with
-      // ticker-specific live Greeks (state.ticker is set after /api/prep).
-      return {
-        ...state,
-        portfolio: a.p,
-        heldGroups: state.ticker ? state.heldGroups : a.heldGroups,
-      };
   }
 }
 
@@ -213,8 +174,6 @@ export default function Page() {
   // Holds the prep result + its abort signal while the earnings gate is open, so
   // "Continue anyway" can resume straight into the panel run without re-prepping.
   const pendingPrepRef = useRef<{ prep: PrepPayload; signal: AbortSignal } | null>(null);
-  const [authStatus, setAuthStatus] = useState<AuthStatus>(null);
-  const [activeTab, setActiveTab] = useState<"single" | "scanner">("single");
 
   const [macroText, setMacroText] = useState<string | null>(null);
   const [macroStatus, setMacroStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -252,44 +211,6 @@ export default function Page() {
       .catch(() => setMacroStatus("error"));
   }, []);
 
-  // Initial portfolio load (independent of any search) so the rail populates immediately.
-  useEffect(() => {
-    fetch("/api/portfolio").then(async (r) => {
-      if (!r.ok) return;
-      const p = (await r.json()) as Portfolio;
-      const cash = (p.summary.totalCash ?? 0) + (p.summary.availableFunds ?? 0);
-      const heldGroups = classifyPortfolio(p.positions ?? [], { cashAvailableForCsp: cash });
-      annotateGroups(heldGroups);
-      dispatch({ type: "set_portfolio", p, heldGroups });
-    }).catch(() => {});
-  }, []);
-
-  // Auth pinger (unchanged from original).
-  useEffect(() => {
-    let cancelled = false;
-    const ping = async () => {
-      try {
-        const r = await fetch("/api/tickle", { cache: "no-store" });
-        if (!r.ok || cancelled) return;
-        const j = (await r.json()) as {
-          iserver?: { authStatus?: { authenticated: boolean; connected: boolean; competing: boolean } };
-        };
-        const a = j.iserver?.authStatus;
-        setAuthStatus({
-          ok: true,
-          authenticated: !!a?.authenticated,
-          connected: !!a?.connected,
-          competing: !!a?.competing,
-        });
-      } catch {
-        if (!cancelled) setAuthStatus({ ok: false, authenticated: false, connected: false, competing: false });
-      }
-    };
-    ping();
-    const id = setInterval(ping, 60_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
-
   // The expensive half: 8 panel Gemini calls + the synth verdict. Split out of
   // runAnalysis so the earnings gate can defer it until the user confirms.
   const runPanelsAndVerdict = useCallback(async (prep: PrepPayload, signal: AbortSignal) => {
@@ -324,9 +245,6 @@ export default function Page() {
           ticker: prep.ticker,
           symbol: prep.symbol,
           snapshot: prep.snapshot,
-          portfolio: prep.portfolio,
-          heldPositions: prep.heldPositions,
-          heldGroups: prep.heldGroups,
           macroContext: macroTextRef.current,
           panels: summaries,
         },
@@ -398,16 +316,6 @@ export default function Page() {
     [runAnalysis, state.tickerInput],
   );
 
-  const changeTab = useCallback((next: "single" | "scanner") => {
-    setActiveTab((prev) => {
-      if (prev === "single" && next !== "single") {
-        abortRef.current?.abort();
-        abortRef.current = null;
-      }
-      return next;
-    });
-  }, []);
-
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -426,25 +334,10 @@ export default function Page() {
         setTicker={(v) => dispatch({ type: "set_input", v })}
         onSubmit={onSubmit}
         loading={state.status !== "idle" && state.status !== "done" && state.status !== "error" && state.status !== "earnings_gate"}
-        authStatus={authStatus}
-        activeTab={activeTab}
-        onTabChange={changeTab}
       />
       <div className={styles.body}>
-        <LeftRail
-          portfolio={state.portfolio}
-          heldGroups={state.heldGroups}
-          searchedTicker={state.ticker}
-          onPickTicker={(t) => {
-            setActiveTab("single");
-            dispatch({ type: "set_input", v: t });
-          }}
-        />
         <main className={`${styles.main} scrollbar-slim`}>
           <div className={styles.mainInner}>
-            {activeTab === "scanner" && <ScannerView />}
-            {activeTab === "single" && (
-              <>
             {state.snapshot ? (
               <Hero data={{
                 ticker: state.ticker,
@@ -452,14 +345,13 @@ export default function Page() {
                 generatedAt: new Date().toISOString(),
                 snapshot: state.snapshot,
                 capital: null, technical: null, derivatives: null, news: null,
-                sentiment: null, fundamentals: null, portfolio: state.portfolio,
-                heldPositions: state.heldPositions, heldGroups: state.heldGroups,
+                sentiment: null, fundamentals: null,
                 verdict: heroData, errors: state.errors,
               }} />
             ) : (
               <div className={styles.heroEmpty}>
                 <h1 className="font-display">Ticker analysis</h1>
-                <p>Search a symbol above to synthesize capital flow, technicals, options activity, news, and community sentiment into a portfolio-aware verdict.</p>
+                <p>Search a symbol above to synthesize capital flow, technicals, options activity, news, and community sentiment into a single dual-sleeve verdict.</p>
               </div>
             )}
 
@@ -499,13 +391,6 @@ export default function Page() {
               </div>
             )}
 
-            {state.heldGroups.some((g) => g.underlying === state.ticker.toUpperCase() && g.kind !== "STOCK") && (
-              <HeldOptionsDetail
-                groups={state.heldGroups.filter((g) => g.underlying === state.ticker.toUpperCase())}
-                symbol={state.symbol}
-              />
-            )}
-
             {state.verdict && (
               <VerdictCard
                 data={{
@@ -514,8 +399,7 @@ export default function Page() {
                   generatedAt: new Date().toISOString(),
                   snapshot: state.snapshot,
                   capital: null, technical: null, derivatives: null, news: null,
-                  sentiment: null, fundamentals: null, portfolio: state.portfolio,
-                  heldPositions: state.heldPositions, heldGroups: state.heldGroups,
+                  sentiment: null, fundamentals: null,
                   verdict: state.verdict, errors: state.errors,
                 }}
               />
@@ -558,8 +442,6 @@ export default function Page() {
                   <span key={i}>{e.source}: {e.message}</span>
                 ))}
               </div>
-            )}
-              </>
             )}
           </div>
         </main>
