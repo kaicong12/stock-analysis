@@ -34,7 +34,11 @@ Set in `.env.local` (Next app) — see `src/lib/env.ts`:
 ## Data layers
 
 - **moomoo OpenD** — the three anomaly feeds (capital/technical/derivatives), news, digest, community feed, and peer graph. Reached via the python sidecar and `src/lib/moomoo/httpApi.ts`.
-- **yfinance (via sidecar)** — fundamentals (incl. next-earnings and ex-dividend dates) plus daily OHLCV (cached in SQLite). The OHLCV is what powers the **deterministic, server-computed** layers: technical indicators, the IV/HV vol summary (and the 1-SD expected move derived from its ATM IV), and the price-action signal. These are computed in Python/TS and cited verbatim — never inferred by the LLM.
+- **yfinance (via sidecar)** — fundamentals (incl. next-earnings and ex-dividend dates) plus daily OHLCV. The OHLCV is what powers the **deterministic, server-computed** layers: technical indicators, the IV/HV vol summary (and the 1-SD expected move derived from its ATM IV), and the price-action signal. These are computed in Python/TS and cited verbatim — never inferred by the LLM.
+
+### Storage
+
+One SQLite file, `data/app.sqlite`, **owned entirely by the python sidecar**. It caches yfinance daily bars (`daily_closes` / `daily_ohlcv` + their sync logs) so HV and the price-action signal don't re-fetch on every request; the schema lives in `python_backend/main.py` (`_db_init`). The Next.js side no longer opens a database at all — the journal and Flex-sync tables that needed one are gone, along with the `better-sqlite3` dependency. The cache is fully rebuildable: delete the file and the sidecar recreates and repopulates it from yfinance.
 - **Massive (ex-Polygon)** — SEC Form 4 insider buys/sells (`src/lib/massive/insider.ts`).
 
 LLM calls go through OpenRouter's `/chat/completions` (`src/lib/gemini/client.ts`); the `src/lib/gemini/` directory name is historical.

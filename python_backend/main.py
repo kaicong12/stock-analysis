@@ -434,21 +434,23 @@ def fundamentals(symbol: str = Query(..., description="e.g. US.AAPL")):
 # the anomaly report's free text. Industry-standard HV: close-to-close log
 # returns × sqrt(252) over a 30 trading-day window.
 
-# yfinance daily-closes cache. Persisted in the shared app.sqlite (same file
-# Next.js uses for the trade journal + Flex sync) via two tables:
-#   daily_closes(yf_ticker, close_date, close)            -- the bars
+# yfinance daily bar cache, persisted in data/app.sqlite via four tables:
+#   daily_closes(yf_ticker, close_date, close)            -- closes, for HV
 #   daily_closes_sync(yf_ticker, last_refresh_date, n)    -- refresh log
-# Schema is owned by Next.js (src/lib/storage/db.ts migration slot 7). We use
-# CREATE TABLE IF NOT EXISTS here so the sidecar can run standalone before
-# Next.js has applied the migration.
+#   daily_ohlcv(yf_ticker, bar_date, o/h/l/c/volume)      -- bars, for price action
+#   daily_ohlcv_sync(yf_ticker, last_refresh_date, n)     -- refresh log
+#
+# The sidecar OWNS this schema outright. It used to be co-owned with Next.js
+# (which ran migrations and set WAL via src/lib/storage/db.ts), but the TS side
+# no longer opens the database at all — the trade journal and IBKR Flex sync
+# that needed it were removed. Hence the pragmas below: nothing else sets them.
 _DB_FILE = Path(__file__).resolve().parent.parent / "data" / "app.sqlite"
 _db_lock = threading.Lock()
 _db_inited = False
 
 
 def _db_init() -> None:
-    """Idempotent. Ensures the daily_closes tables exist. WAL is set by Next.js
-    on first migration — we don't re-toggle it here."""
+    """Idempotent. Ensures the bar-cache tables exist and the pragmas are set."""
     global _db_inited
     if _db_inited:
         return
@@ -457,6 +459,12 @@ def _db_init() -> None:
             return
         _DB_FILE.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(_DB_FILE, timeout=5) as conn:
+            # WAL persists in the file header once set, so this is a no-op on an
+            # existing DB — it matters for a freshly created one. synchronous=
+            # NORMAL trades a power-loss window we don't care about (the bars are
+            # re-fetchable from yfinance) for markedly faster writes.
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS daily_closes (
                   yf_ticker   TEXT NOT NULL,
@@ -502,8 +510,8 @@ def _db_init() -> None:
 @contextmanager
 def _db():
     _db_init()
-    # busy_timeout (via timeout kwarg) lets us wait out brief writer locks
-    # from the Next.js process instead of getting SQLITE_BUSY immediately.
+    # busy_timeout (via timeout kwarg) lets us wait out brief writer locks from
+    # a concurrent worker thread instead of getting SQLITE_BUSY immediately.
     conn = sqlite3.connect(_DB_FILE, timeout=5)
     try:
         yield conn

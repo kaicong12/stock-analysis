@@ -7,10 +7,6 @@
    - Capital Anomaly: already defaults to 30 days (`src/lib/moomoo/sidecar.ts:65`) — keep at 30. If stale dates still appear in the panel, investigate the moomoo `get_financial_unusual` output (anomaly events dated outside the window / report-text dates), NOT the lookback parameter
    - Optionally expose both windows as parameters later for per-run tuning
 
-2. ~~**Let Scanner include more useful filters**~~ **Dropped (2026-08-02)** — the scanner was IBKR's `/iserver/scanner/run` and went with the broker integration. Reviving candidate discovery needs a non-IBKR source of IV Rank / IV Percentile screening; no in-repo replacement exists (moomoo OpenD has no equivalent screener). Until then the app is single-ticker-on-demand only.
-
-3. ~~**Portfolio-level aggregate risk view (net delta / vega / concentration)**~~ **Dropped (2026-08-02)** — depends on a position feed the app no longer has. Would require re-introducing broker positions or a manual position-entry surface; see the "No broker integration" constraint in `CLAUDE.md`.
-
 ### Learning / research
 
 1. **Understand MACD + the common "good-entry" indicator stack**
