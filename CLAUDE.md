@@ -108,12 +108,21 @@ spacing:
 The user is a **conservative options/derivatives trader**. All features, screeners, and strategy tooling built in this project must respect the following constraints:
 
 - **Underlying quality:** Only trade derivatives on large-cap tickers ($10B+ market cap). Explicitly exclude meme stocks, penny stocks, and speculative low-cap instruments.
-- **Exchange filter:** Restrict to major US exchanges (NYSE, NASDAQ) via `locationCode = "STK.US.MAJOR"` in IBKR scanner calls.
-- **Liquidity minimums:** Enforce `abovePrice = 20`, `aboveVolume = 500,000` (daily), and `optVolumeAbove = 1,000` on all scanner queries.
+- **Exchange filter:** Restrict to major US exchanges (NYSE, NASDAQ).
+- **Liquidity minimums:** Price > $20, daily volume > 500,000, daily option volume > 1,000.
 - **Preferred strategies:** Credit spreads and iron condors in high IV Rank (>50) environments. No naked options or unlimited-risk positions.
-- **IV filter:** Use `HIGH_OPT_IMP_VOLAT_OVER_HIST` as the primary scan code. IVR > 50 required; IVR > 70 preferred.
+- **IV filter:** IVR > 50 required; IVR > 70 preferred.
 - **No binary events:** Never suggest entering a position when earnings, FDA, or FOMC dates fall within the expiration window.
-- **Broker:** Interactive Brokers (IBKR) — Client Portal API and TWS API.
+- **No broker integration.** The app has no account, NAV, cash, or position data and must not acquire any. Consequences for anything built here:
+  - Recommendations are **entry-or-pass** on a fresh position. Never advise holding, closing, trimming, or rolling — the app cannot see whether a position exists.
+  - **Never state a position size** — no share counts, contract counts, dollar risk, or "% NAV". Sizing happens at the broker.
+  - Never assume the user holds shares, cash, or options. A strategy that needs one (covered call, CSP) must state the prerequisite as an explicit condition.
+
+## Working Style
+
+- **Minimal diffs.** Change only what the task requires. Do not refactor, rename, reformat, or "improve" adjacent code that was not part of the ask.
+- **Minimal comments.** Comment only what the code cannot say itself — a non-obvious constraint, a rule imposed from outside, or a reason a line exists at all. Do not narrate what the code does, restate a function's name in prose, or leave section banners.
+- Prefer deleting a comment over updating it. If the code needs a paragraph to explain, rewrite the code.
 
 ## Brand & Style
 This design system is built for high-stakes financial environments where authority and clarity are paramount. The brand personality is institutional yet innovative—think of it as a digital translation of a premium private equity firm. The design style follows a **Corporate / Modern** aesthetic, prioritizing data density and structural integrity over decorative elements. It utilizes a high-contrast dark environment to reduce eye strain during prolonged analysis and to make vibrant financial indicators pop. The overall emotional response should be one of absolute confidence, precision, and "Alpha" level insight.

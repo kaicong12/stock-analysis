@@ -1,13 +1,7 @@
 import type { NextRequest } from "next/server";
 import { computeExpectedMove, synthesizeVerdict } from "../../../lib/gemini/synth";
 import { getPriceAction, getTechnicalIndicators, getVolSummary } from "../../../lib/moomoo/sidecar";
-import type {
-  HeldGroup,
-  PanelSummary,
-  Portfolio,
-  Position,
-  SnapshotResult,
-} from "../../../lib/types";
+import type { PanelSummary, SnapshotResult } from "../../../lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,9 +11,6 @@ interface VerdictBody {
   ticker?: string;
   symbol?: string;
   snapshot?: SnapshotResult | null;
-  portfolio?: Portfolio | null;
-  heldPositions?: Position[];
-  heldGroups?: HeldGroup[];
   macroContext?: string | null;
   panels?: {
     capital: PanelSummary;
@@ -57,9 +48,6 @@ export async function POST(request: NextRequest) {
       ticker: body.ticker,
       symbol: body.symbol,
       snapshot: body.snapshot ?? null,
-      portfolio: body.portfolio ?? null,
-      heldPositions: body.heldPositions ?? [],
-      heldGroups: body.heldGroups ?? [],
       priceAction,
       technicalIndicators,
       // 1-SD expected move from ATM IV — feeds the strike-placement check.

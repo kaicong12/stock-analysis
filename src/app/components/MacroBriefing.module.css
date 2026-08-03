@@ -35,55 +35,32 @@
   padding: 2px 6px;
 }
 
-.body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* Doubled class outranks `.markdown h2` regardless of module load order. */
+.body.body {
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  line-height: 1.6;
 }
 
-.sectionHeader {
+.body.body h1,
+.body.body h2,
+.body.body h3 {
   font-family: var(--font-work-sans), sans-serif;
   font-weight: 600;
   font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--on-surface);
-  margin-top: 10px;
-  margin-bottom: 2px;
+  margin: 12px 0 4px;
 }
-.sectionHeader:first-child {
-  margin-top: 0;
-}
+.body.body > :first-child { margin-top: 0; }
 
-.bullet {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--on-surface-variant);
-  line-height: 1.6;
-  padding-left: 4px;
+.body.body ul,
+.body.body ol {
+  padding-left: 16px;
+  margin: 0 0 8px;
 }
-
-.bulletDot {
-  flex-shrink: 0;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--primary);
-  margin-top: 6px;
-  align-self: flex-start;
-}
-
-.line {
-  font-size: 12.5px;
-  color: var(--on-surface-variant);
-  line-height: 1.6;
-}
-
-.spacer {
-  height: 4px;
-}
+.body.body li::marker { color: var(--primary); }
 
 .skeleton {
   display: flex;

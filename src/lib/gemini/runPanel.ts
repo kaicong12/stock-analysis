@@ -3,7 +3,7 @@ import { getAnomaly, getFundamentals, getMorningstar, getPeers, getTechnicalIndi
 import { getInsiderTransactions } from "../massive/insider";
 import { ticker as toTicker } from "../symbol";
 import type { PanelSummary } from "../types";
-import type { PanelKey } from "../batch/protocol";
+import type { PanelKey } from "../types";
 import {
   analyzeCapital,
   analyzeDerivatives,
