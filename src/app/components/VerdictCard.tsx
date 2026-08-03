@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import styles from "../page.module.css";
 import { fmtNum } from "./format";
+import { MarkdownInline } from "./Markdown";
 import type {
   DashboardData,
   DerivativesAction,
@@ -89,10 +90,10 @@ export function VerdictCard({ data }: { data: DashboardData }) {
         <DerivativesSleeve sleeve={v.derivatives} symbol={data.symbol} ticker={data.ticker} />
       </div>
 
-      <p className={styles.rationale}>{v.rationale}</p>
+      <p className={styles.rationale}><MarkdownInline>{v.rationale}</MarkdownInline></p>
       <div className={styles.riskRow}>
         <strong>Risk</strong>
-        <span>{v.riskFactor}</span>
+        <span><MarkdownInline>{v.riskFactor}</MarkdownInline></span>
       </div>
     </section>
   );
@@ -298,7 +299,9 @@ function AdjustmentBlock({ adj }: { adj: PositionAdjustment }) {
       <div className={styles.adjustmentHeader}>
         <IconPlay /> What to do
       </div>
-      <p className={styles.adjustmentInstruction}>{adj.instruction}</p>
+      <p className={styles.adjustmentInstruction}>
+        <MarkdownInline>{adj.instruction}</MarkdownInline>
+      </p>
       {chips.length > 0 && (
         <div className={styles.adjustmentChips}>
           {chips.map((c) => (
