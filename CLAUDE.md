@@ -118,6 +118,12 @@ The user is a **conservative options/derivatives trader**. All features, screene
   - **Never state a position size** — no share counts, contract counts, dollar risk, or "% NAV". Sizing happens at the broker.
   - Never assume the user holds shares, cash, or options. A strategy that needs one (covered call, CSP) must state the prerequisite as an explicit condition.
 
+## Working Style
+
+- **Minimal diffs.** Change only what the task requires. Do not refactor, rename, reformat, or "improve" adjacent code that was not part of the ask.
+- **Minimal comments.** Comment only what the code cannot say itself — a non-obvious constraint, a rule imposed from outside, or a reason a line exists at all. Do not narrate what the code does, restate a function's name in prose, or leave section banners.
+- Prefer deleting a comment over updating it. If the code needs a paragraph to explain, rewrite the code.
+
 ## Brand & Style
 This design system is built for high-stakes financial environments where authority and clarity are paramount. The brand personality is institutional yet innovative—think of it as a digital translation of a premium private equity firm. The design style follows a **Corporate / Modern** aesthetic, prioritizing data density and structural integrity over decorative elements. It utilizes a high-contrast dark environment to reduce eye strain during prolonged analysis and to make vibrant financial indicators pop. The overall emotional response should be one of absolute confidence, precision, and "Alpha" level insight.
 

@@ -1,9 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import styles from "../page.module.css";
+import { Markdown, MarkdownInline } from "./Markdown";
 import type {
   CommentSentimentResult,
   InsiderFlowItem,
@@ -58,18 +57,22 @@ export function Panel(props: {
       <div className={styles.panelBody + " scrollbar-slim"}>
         {summary ? (
           summary.prose ? (
-            // Web-grounded Stock Digest: render the model's answer verbatim as
-            // markdown (links/levels/numbers preserved), like the Ask AI panel.
-            <div className={styles.panelProse + " " + styles.markdown}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary.prose}</ReactMarkdown>
-            </div>
+            <Markdown className={styles.panelProse}>{summary.prose}</Markdown>
           ) : (
             <>
-              <div className={styles.panelHeadline}>{summary.headline}</div>
-              {summary.conclusion && <p className={styles.panelConclusion}>{summary.conclusion}</p>}
+              <div className={styles.panelHeadline}>
+                <MarkdownInline>{summary.headline}</MarkdownInline>
+              </div>
+              {summary.conclusion && (
+                <p className={styles.panelConclusion}>
+                  <MarkdownInline>{summary.conclusion}</MarkdownInline>
+                </p>
+              )}
               {summary.bullets.length > 0 && (
                 <ul className={styles.panelBullets}>
-                  {summary.bullets.map((b, i) => <li key={i}>{b}</li>)}
+                  {summary.bullets.map((b, i) => (
+                    <li key={i}><MarkdownInline>{b}</MarkdownInline></li>
+                  ))}
                 </ul>
               )}
               {meta.length > 0 && <MetaRow meta={meta} />}
