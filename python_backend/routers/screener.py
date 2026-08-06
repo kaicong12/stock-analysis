@@ -272,6 +272,29 @@ def funnel(
     return {"asOf": dt.date.today().isoformat(), "steps": steps}
 
 
+def _envelope(today: dt.date, screened: int, universe: int, candidates: list[dict],
+              rejects: list[dict], dte_min: int, dte_max: int) -> dict:
+    """One response shape for every exit path. The early "nothing screened"
+    return used to omit `criteria`, which dropped the threshold summary from the
+    UI in exactly the case where the user needs to know what produced an empty
+    result."""
+    return {
+        "asOf": today.isoformat(),
+        "screened": screened,
+        "universe": universe,
+        "candidates": candidates,
+        "rejects": rejects,
+        "fomcCalendarStale": fomc.calendar_is_stale(today + dt.timedelta(days=dte_max)),
+        "criteria": {
+            "minIvRank": SCR_MIN_IVR, "minIvHv": SCR_MIN_IV_HV,
+            "dte": [dte_min, dte_max], "delta": [SCR_DELTA_LO, SCR_DELTA_HI],
+            "minOtmProbability": SCR_MIN_OTM_PROB, "minOpenInterest": SCR_MIN_OI,
+            "minCreditWidth": SCR_MIN_CREDIT_WIDTH,
+            "minListingYears": SCR_MIN_LISTING_YEARS,
+        },
+    }
+
+
 @router.get("/screener/credit-spreads")
 def credit_spreads(
     dte_min: int = Query(SCR_DTE_MIN, ge=7, le=120),
@@ -291,9 +314,7 @@ def credit_spreads(
         r["_symbol"], r["_expiry"] = symbol, expiry
         by_symbol.setdefault(symbol, []).append(r)
     if not by_symbol:
-        return {"asOf": today.isoformat(), "screened": len(rows), "universe": 0,
-                "candidates": [], "rejects": [],
-                "fomcCalendarStale": fomc.calendar_is_stale(today)}
+        return _envelope(today, len(rows), 0, [], [], dte_min, dte_max)
 
     info = _basic_info(sorted(by_symbol))
     candidates: list[dict] = []
@@ -435,18 +456,5 @@ def credit_spreads(
             reject("no_contract", "no contract in the requested DTE band survived")
 
     candidates.sort(key=lambda c: (c["creditWidth"], c["ivHv"] or 0), reverse=True)
-    return {
-        "asOf": today.isoformat(),
-        "screened": len(rows),
-        "universe": len(by_symbol),
-        "candidates": candidates[:limit],
-        "rejects": rejects,
-        "fomcCalendarStale": fomc.calendar_is_stale(today + dt.timedelta(days=dte_max)),
-        "criteria": {
-            "minIvRank": SCR_MIN_IVR, "minIvHv": SCR_MIN_IV_HV,
-            "dte": [dte_min, dte_max], "delta": [SCR_DELTA_LO, SCR_DELTA_HI],
-            "minOtmProbability": SCR_MIN_OTM_PROB, "minOpenInterest": SCR_MIN_OI,
-            "minCreditWidth": SCR_MIN_CREDIT_WIDTH,
-            "minListingYears": SCR_MIN_LISTING_YEARS,
-        },
-    }
+    return _envelope(today, len(rows), len(by_symbol), candidates[:limit], rejects,
+                     dte_min, dte_max)
