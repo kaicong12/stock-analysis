@@ -523,3 +523,91 @@ export interface DashboardData {
   verdict: Verdict | null;
   errors: { source: string; message: string }[];
 }
+
+export type ScreenerRejectReason =
+  | "exchange"
+  | "listing_age"
+  | "no_price"
+  | "downtrend"
+  | "earnings"
+  | "fomc"
+  | "expected_move"
+  | "support"
+  | "no_quote"
+  | "wide_quote"
+  | "thin_credit"
+  | "no_contract";
+
+interface ScreenerRow {
+  symbol: string;
+  name: string | null;
+  ivRank: number | null;
+  iv: number | null;
+  hv: number | null;
+  ivHv: number | null;
+  marketCap: number | null;
+  price: number | null;
+}
+
+export interface ScreenerReject extends ScreenerRow {
+  reason: ScreenerRejectReason;
+  detail: string | null;
+}
+
+export interface ScreenerCandidate extends ScreenerRow {
+  spot: number;
+  expiry: string;
+  dte: number;
+  delta: number | null;
+  otmProbability: number | null;
+  openInterest: number | null;
+  optionVolume: number | null;
+  expectedMove: number;
+  expectedMoveFloor: number;
+  cushionPct: number;
+  support: number | null;
+  sma200: number | null;
+  structureBias: StructureBias;
+  nextEarningsDate: string | null;
+  exDividendDate: string | null;
+  shortStrike: number;
+  longStrike: number;
+  width: number;
+  credit: number;
+  creditWidth: number;
+  // Strike minus net credit — the per-share price assignment would leave you
+  // holding at, which is the number that matters if the wheel continues.
+  costBasis: number;
+  quoteSpreadPct: number | null;
+}
+
+export interface ScreenerResult {
+  asOf: string;
+  screened: number;
+  universe: number;
+  candidates: ScreenerCandidate[];
+  rejects: ScreenerReject[];
+  fomcCalendarStale: boolean;
+  criteria: {
+    minIvRank: number;
+    minIvHv: number;
+    dte: [number, number];
+    delta: [number, number];
+    minOtmProbability: number;
+    minOpenInterest: number;
+    minCreditWidth: number;
+    minListingYears: number;
+  };
+}
+
+export const SCREENER_DEFAULTS = { dteMin: 25, dteMax: 45, limit: 15 } as const;
+
+export interface ScreenerFunnelStep {
+  gate: string;
+  contracts: number;
+}
+
+export interface ScreenerFunnel {
+  asOf: string;
+  steps: ScreenerFunnelStep[];
+}

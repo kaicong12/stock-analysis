@@ -7,6 +7,8 @@ import type {
   MorningstarReport,
   PeersResult,
   PriceAction,
+  ScreenerFunnel,
+  ScreenerResult,
   SnapshotResult,
   TechnicalIndicators,
   VolSummary,
@@ -299,3 +301,30 @@ export async function getPeers(symbol: string, top = 8): Promise<PeersResult> {
   }
 }
 
+
+// Credit-spread screener. Unlike the per-ticker calls above this THROWS on
+// failure: an empty candidate list is a legitimate result here, so silently
+// swallowing an error would be indistinguishable from "nothing qualifies today".
+export async function getScreener(
+  dteMin: number,
+  dteMax: number,
+  limit: number,
+): Promise<ScreenerResult> {
+  return callSidecar<ScreenerResult>("/screener/credit-spreads", {
+    dte_min: String(dteMin),
+    dte_max: String(dteMax),
+    limit: String(limit),
+  });
+}
+
+// Per-gate contract counts. Throttled to one screen call per gate server-side,
+// so this is on-demand only — never fetch it alongside the screener itself.
+export async function getScreenerFunnel(
+  dteMin: number,
+  dteMax: number,
+): Promise<ScreenerFunnel> {
+  return callSidecar<ScreenerFunnel>("/screener/funnel", {
+    dte_min: String(dteMin),
+    dte_max: String(dteMax),
+  });
+}
