@@ -57,7 +57,9 @@ function Candidates({ rows }: { rows: ScreenerCandidate[] }) {
               </td>
               <td>{num(c.spot)}</td>
               <td>{pct(c.ivRank)}</td>
-              <td className={styles.good}>{num(c.ivHv)}</td>
+              <td className={c.ivHv !== null && c.ivHv < 1 ? styles.bad : styles.good}>
+                {num(c.ivHv)}
+              </td>
               <td>{c.expiry}</td>
               <td>{c.dte}</td>
               <td>
