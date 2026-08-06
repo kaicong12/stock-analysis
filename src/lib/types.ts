@@ -570,13 +570,13 @@ export interface ScreenerCandidate extends ScreenerRow {
   structureBias: StructureBias;
   nextEarningsDate: string | null;
   exDividendDate: string | null;
+  fomcInWindow: string | null;
   shortStrike: number;
   longStrike: number;
   width: number;
   credit: number;
   creditWidth: number;
-  // Strike minus net credit — the per-share price assignment would leave you
-  // holding at, which is the number that matters if the wheel continues.
+  /** Short strike minus net credit: the price assignment leaves you holding at. */
   costBasis: number;
   quoteSpreadPct: number | null;
 }

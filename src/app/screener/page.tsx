@@ -20,8 +20,6 @@ const plural = (n: number, one: string, many = `${one}s`) =>
 const capBn = (n: number | null) =>
   n === null || !Number.isFinite(n) ? "—" : `$${(n / 1e9).toFixed(0)}B`;
 
-// Level guards are a judgement call on where price can go; event guards are a
-// hard calendar fact. Colouring them differently keeps that distinction visible.
 const EVENT_REASONS = new Set(["earnings", "fomc"]);
 
 function Candidates({ rows }: { rows: ScreenerCandidate[] }) {
@@ -36,6 +34,7 @@ function Candidates({ rows }: { rows: ScreenerCandidate[] }) {
             <th>IV/HV</th>
             <th>Expiry</th>
             <th>DTE</th>
+            <th>Events</th>
             <th>Short</th>
             <th>Long</th>
             <th>Credit</th>
@@ -61,6 +60,15 @@ function Candidates({ rows }: { rows: ScreenerCandidate[] }) {
               <td className={styles.good}>{num(c.ivHv)}</td>
               <td>{c.expiry}</td>
               <td>{c.dte}</td>
+              <td>
+                {c.fomcInWindow ? (
+                  <span className={`${styles.chip} ${styles.chipEvent}`}>
+                    FOMC {c.fomcInWindow.slice(5)}
+                  </span>
+                ) : (
+                  <span className={styles.subtle}>—</span>
+                )}
+              </td>
               <td>{num(c.shortStrike)}</td>
               <td>{num(c.longStrike)}</td>
               <td>{num(c.credit)}</td>

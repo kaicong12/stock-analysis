@@ -1,15 +1,5 @@
-"""Credit-spread screener.
-
-Four stages, narrowing hard:
-  0. one market-wide get_option_screen call for the IV/liquidity universe
-  1. exchange + listing-age post-filter (fields the screener has no filter for)
-  2. binary-event veto, then the expected-move / support / trend guards
-  3. price the actual spread off the chain
-
-Rejects are returned alongside candidates. An empty candidate list is a normal
-outcome here, and without the reject rows it is indistinguishable from a broken
-screener — see the value-scale note on _screen().
-"""
+"""Credit-spread screener: market-wide option screen, then per-underlying
+event/level guards and spread pricing. Returns rejects alongside candidates."""
 
 import datetime as dt
 import math
@@ -45,13 +35,12 @@ from util import normalize, to_float, to_yf_ticker
 
 router = APIRouter()
 
-# US equity option code, e.g. US.NVDA260918P190000
+# e.g. US.NVDA260918P190000
 _CODE_RE = re.compile(r"^(?P<mkt>[A-Z]+)\.(?P<tkr>[A-Z]+)(?P<ymd>\d{6})(?P<cp>[CP])\d+$")
 
-# The screener takes OPTION_TYPE as a proto int, not the OptionType string enum.
+# OPTION_TYPE takes a proto int, not the OptionType string enum.
 _OPT_TYPE_PUT = 2
 
-# How far through the per-contract gates each rejection reason sits.
 _GATE_ORDER = {
     "earnings": 1, "fomc": 1, "expected_move": 2, "support": 3,
     "no_quote": 4, "wide_quote": 5, "thin_credit": 6,
@@ -82,13 +71,9 @@ def _parse_code(code: str) -> tuple[str, dt.date] | None:
 
 
 def _screen(dte_min: int, dte_max: int) -> list[dict]:
-    """Stage 0.
-
-    The SDK docstring's own example passes IV as a scaled integer; that is wrong
-    for these fields. IV, IV_RANK, HV and IV_HV_RATIO are DECIMALS (0.50 = IVR
-    50) while MARKET_CAP / STOCK_PRICE / VOLUME are raw units. Passing 50 for
-    IV_RANK returns RET_OK with zero rows — a silent empty screener.
-    """
+    """IV, IV_RANK, HV and IV_HV_RATIO are decimals (0.50 = IVR 50); MARKET_CAP,
+    STOCK_PRICE and VOLUME are raw units. The SDK docstring says otherwise, and
+    passing 50 for IV_RANK returns RET_OK with zero rows."""
     req = OptionScreenRequest(market_categories=[OptMarketCategory.US_STOCK])
     req.add_underlying_filter(OptUnderlyingIndicator.MARKET_CAP, lower=float(SCR_MIN_CAP))
     req.add_underlying_filter(OptUnderlyingIndicator.STOCK_PRICE, lower=float(SCR_MIN_PRICE))
@@ -132,8 +117,7 @@ def _basic_info(symbols: list[str]) -> dict[str, dict]:
 
 
 def _event_dates(yf_ticker: str) -> tuple[str | None, str | None]:
-    """(next earnings, ex-dividend). Never raises — a lookup failure must not
-    silently pass a name through the veto, so callers treat None as unknown."""
+    """(next earnings, ex-dividend). None means unknown, not absent."""
     try:
         import yfinance as yf
 
@@ -148,8 +132,7 @@ def _event_dates(yf_ticker: str) -> tuple[str | None, str | None]:
 
 def _spread_credit(symbol: str, expiry: dt.date, short_strike: float,
                    spot: float) -> dict | None:
-    """Stage 3: net credit off the live chain, filled conservatively (sell the
-    short leg at bid, buy the long leg at ask)."""
+    """Net credit off the live chain: short leg at bid, long leg at ask."""
     target_long = short_strike - max(spot * SCR_WIDTH_PCT, 1.0)
     iso = expiry.isoformat()
     with quote_ctx() as ctx:
@@ -200,7 +183,7 @@ def _spread_credit(symbol: str, expiry: dt.date, short_strike: float,
 
 
 def _underlying_state(symbol: str) -> dict:
-    """Spot-relative structure: support zones, SMA200, expected-move inputs."""
+    """Support zones, SMA200 and spot."""
     bars = daily_ohlcv(to_yf_ticker(symbol), n_bars=220)
     if len(bars) < 40:
         return {"support": None, "sma200": None, "spot": None, "barsUsed": len(bars)}
@@ -235,14 +218,8 @@ def funnel(
     dte_min: int = Query(SCR_DTE_MIN, ge=7, le=120),
     dte_max: int = Query(SCR_DTE_MAX, ge=7, le=120),
 ):
-    """Contract count after each gate, cumulatively.
-
-    Zero candidates is a normal result for this screener, which makes a blank
-    page ambiguous. This is the liveness proof: it shows the universe collapsing
-    gate by gate, so a broken filter looks different from a quiet market.
-
-    One throttled screen call per gate — slow and on-demand, never on page load.
-    """
+    """Cumulative contract count after each gate. One throttled screen call per
+    gate, so call it on demand rather than on page load."""
     gates = [
         ("puts only", lambda r: r.add_option_filter(OptIndicator.OPTION_TYPE, values=[_OPT_TYPE_PUT])),
         (f"market cap ≥ ${SCR_MIN_CAP / 1e9:g}B",
@@ -274,10 +251,7 @@ def funnel(
 
 def _envelope(today: dt.date, screened: int, universe: int, candidates: list[dict],
               rejects: list[dict], dte_min: int, dte_max: int) -> dict:
-    """One response shape for every exit path. The early "nothing screened"
-    return used to omit `criteria`, which dropped the threshold summary from the
-    UI in exactly the case where the user needs to know what produced an empty
-    result."""
+    """One response shape for every exit path."""
     return {
         "asOf": today.isoformat(),
         "screened": screened,
@@ -304,7 +278,6 @@ def credit_spreads(
     today = dt.date.today()
     rows = _screen(dte_min, dte_max)
 
-    # Stage 0 returns contracts; the guards operate per underlying.
     by_symbol: dict[str, list[dict]] = {}
     for r in rows:
         parsed = _parse_code(r.get("code", ""))
@@ -375,11 +348,7 @@ def credit_spreads(
         near_miss: tuple[str, str] | None = None
 
         def note(reason: str, detail: str) -> None:
-            """Keep the failure from the contract that got FURTHEST through the
-            gates. Reporting the first (most liquid) contract's reason instead
-            would hide that a deeper strike cleared the levels and died on
-            pricing — which is the difference between 'wrong name' and 'right
-            name, wrong day'."""
+            """Reports the failure from the contract that got furthest."""
             nonlocal near_miss
             if near_miss is None or _GATE_ORDER[reason] > _GATE_ORDER[near_miss[0]]:
                 near_miss = (reason, detail)
@@ -401,6 +370,7 @@ def credit_spreads(
             if meetings and SCR_FOMC_HARD_VETO:
                 note("fomc", f"FOMC {meetings[0]} inside the {dte}d window")
                 continue
+            fomc_in_window = meetings[0] if meetings else None
 
             em = spot * iv * math.sqrt(dte / 365.0)
             em_floor = spot - em
@@ -444,6 +414,7 @@ def credit_spreads(
                 "structureBias": state.get("structureBias"),
                 "nextEarningsDate": earnings,
                 "exDividendDate": ex_div,
+                "fomcInWindow": fomc_in_window,
                 **priced,
             }
             break

@@ -4,8 +4,7 @@ import { SCREENER_DEFAULTS } from "../../../lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Stage 2/3 walk the survivors one at a time through OpenD's single-context
-// lock plus a yfinance calendar read each, so a cold run is slow by design.
+// Survivors are walked serially through OpenD's single-context lock.
 export const maxDuration = 300;
 
 function intParam(request: NextRequest, key: string, fallback: number): number {

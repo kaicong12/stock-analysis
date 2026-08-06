@@ -302,9 +302,8 @@ export async function getPeers(symbol: string, top = 8): Promise<PeersResult> {
 }
 
 
-// Credit-spread screener. Unlike the per-ticker calls above this THROWS on
-// failure: an empty candidate list is a legitimate result here, so silently
-// swallowing an error would be indistinguishable from "nothing qualifies today".
+// Throws on failure: an empty candidate list is a legitimate result, so a
+// swallowed error would look identical to "nothing qualifies today".
 export async function getScreener(
   dteMin: number,
   dteMax: number,
@@ -317,8 +316,7 @@ export async function getScreener(
   });
 }
 
-// Per-gate contract counts. Throttled to one screen call per gate server-side,
-// so this is on-demand only — never fetch it alongside the screener itself.
+// One throttled screen call per gate server-side — fetch on demand only.
 export async function getScreenerFunnel(
   dteMin: number,
   dteMax: number,
