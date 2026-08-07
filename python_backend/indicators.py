@@ -42,6 +42,39 @@ def historical_vol(closes: list[float], window: int) -> float | None:
     return stdev(returns) * math.sqrt(252)
 
 
+def historical_vol_series(closes: list[float], window: int = 30) -> list[float]:
+    """HV at every bar that has a full `window` of returns behind it, ascending.
+
+    Same convention as historical_vol (sqrt(252), sample stddev) but walks the
+    window forward once instead of recomputing from scratch per offset, so a
+    year of history costs one pass.
+    """
+    if len(closes) < window + 1:
+        return []
+    returns = [
+        math.log(closes[i] / closes[i - 1]) if (closes[i - 1] > 0 and closes[i] > 0) else 0.0
+        for i in range(1, len(closes))
+    ]
+    root = math.sqrt(252)
+    return [
+        stdev(returns[i - window:i]) * root
+        for i in range(window, len(returns) + 1)
+    ]
+
+
+def percentile_rank(series: list[float], value: float) -> float | None:
+    """Where `value` sits within `series`, 0-100.
+
+    Ties count as half, the standard mid-rank convention — so a flat series
+    reads 50 (neither high nor low) rather than 0 or 100.
+    """
+    if not series:
+        return None
+    below = sum(1 for s in series if s < value)
+    equal = sum(1 for s in series if s == value)
+    return (below + 0.5 * equal) / len(series) * 100
+
+
 def rsi(closes: list[float], period: int = 14) -> float | None:
     """Wilder's RSI at the latest bar."""
     series = rsi_series(closes, period)
