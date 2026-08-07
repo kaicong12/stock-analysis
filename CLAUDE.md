@@ -105,18 +105,19 @@ spacing:
 
 ## Trading Profile & Strategy Guidelines
 
-The user is a **conservative options/derivatives trader**. All features, screeners, and strategy tooling built in this project must respect the following constraints:
+The user is a **long-term investor who wheels the names they want to own** — not an income trader hunting premium. They research a ticker only when they already want to hold it, then use the wheel to enter at a price they choose: sell a cash-secured put at a price they'd be content buying at; if assigned, they own shares they wanted and sell covered calls against them. **Assignment is an accepted outcome, never a failure.**
 
-- **Underlying quality:** Only trade derivatives on large-cap tickers ($10B+ market cap). Explicitly exclude meme stocks, penny stocks, and speculative low-cap instruments.
-- **Exchange filter:** Restrict to major US exchanges (NYSE, NASDAQ).
-- **Liquidity minimums:** Price > $20, daily volume > 500,000, daily option volume > 1,000.
-- **Preferred strategies:** Credit spreads and iron condors in high IV Rank (>50) environments. No naked options or unlimited-risk positions.
-- **IV filter:** IVR > 50 required; IVR > 70 preferred.
-- **No binary events:** Never suggest entering a position when earnings, FDA, or FOMC dates fall within the expiration window.
-- **No broker integration.** The app has no account, NAV, cash, or position data and must not acquire any. Consequences for anything built here:
+- **Strategy menu:** cash-secured puts and covered calls only. No spreads, no iron condors, no naked or debit structures.
+- **Price before premium.** The primary question is "is this a good price to be assigned at", not "where is premium richest". A strike that pays well but sits above the acquisition zone is a pass — being well paid to buy at a bad price is the mistake to avoid.
+- **Vol is a bonus, not a gate.** Rich premium means better pay for waiting; thin premium is a *downgrade, not a veto*. Never gate an entry on an IV threshold — that rule belonged to the old income book. Note that true IV Rank is unavailable (no source carries historical implied vol); the app uses a realized-vol percentile and must always label it as a proxy.
+- **Weakness is ambiguous, not disqualifying.** A mild breakdown can be the price the wheeler wants — warn, don't block. Only a *severe* breakdown (thesis damage) blocks an entry.
+- **No ticker screening.** The user picks tickers themselves. Don't build market-cap, exchange, or liquidity gates on the underlying; per-strike liquidity (a real bid, sane spread, some OI) is still fair game.
+- **No binary events:** never suggest an expiry with earnings, FDA, or FOMC dates inside its window.
+- **No broker integration.** The app has no account, NAV, cash, or position data and must not acquire any. Consequences:
   - Recommendations are **entry-or-pass** on a fresh position. Never advise holding, closing, trimming, or rolling — the app cannot see whether a position exists.
-  - **Never state a position size** — no share counts, contract counts, dollar risk, or "% NAV". Sizing happens at the broker.
-  - Never assume the user holds shares, cash, or options. A strategy that needs one (covered call, CSP) must state the prerequisite as an explicit condition.
+  - **Never state a position size** — no share counts, contract counts, or dollar risk. Annualized yield % is fine; it's size-independent. Sizing happens at the broker.
+  - Never assume the user holds shares or cash. Both wheel legs must state their prerequisite as an explicit condition.
+  - Don't prescribe defensive exits on the put leg ("close at 21 DTE", "take profit at 50%") — those are income-trader mechanics. If price comes to the strike, taking the shares is the plan.
 
 ## Working Style
 

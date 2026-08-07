@@ -8,6 +8,8 @@
     "dev:sidecar": "bash python_backend/run.sh",
     "build": "next build",
     "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint",
     "lint:fix": "eslint src eslint.config.mjs next.config.ts --fix",
     "kill-port": "npx kill-port",
@@ -29,7 +31,8 @@
     "eslint-config-next": "16.2.4",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs}": [

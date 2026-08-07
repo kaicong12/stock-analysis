@@ -1,182 +1,94 @@
 # stock-analysis
 
-A stock & options analysis dashboard. Pulls data from moomoo OpenD (capital/technical/derivatives anomalies, news, community sentiment, peers), yfinance (fundamentals + daily OHLCV), and Massive — the vendor formerly known as Polygon (SEC Form 4 insider transactions). It runs each slice through a per-skill LLM panel and synthesizes a single dual-sleeve verdict (stock action + derivatives action). The app stops at the verdict — strike, expiry, sizing, and order entry all happen at your broker.
+A wheel-entry desk for one ticker at a time. You bring a company you already want to own; the app answers **is this a good price, and where do I sell the put.**
 
-**No broker integration.** The app has no view of your account, NAV, cash, or open positions, and deliberately never asks for them. Both sleeves are therefore **entry-or-pass** calls on a fresh position: stock is `OPEN` or `PASS`; derivatives is one of the five credit structures or `PASS`. The verdict never states a position size — no share counts, no contract counts, no "% NAV" — because there is no portfolio to size against.
+It pulls moomoo OpenD (anomaly feeds, news, community sentiment, peers, Morningstar), yfinance (fundamentals + daily OHLCV), and Massive (SEC Form 4), runs each slice through its own LLM panel, and synthesizes a dual-sleeve verdict: a stock action and a wheel action.
 
-The desk is tuned for a **conservative, credit-only options book** (defined-risk premium selling — no naked or debit positions). See `CLAUDE.md` for the full trading profile.
+**No broker integration**, deliberately — no account, NAV, cash, or position data, and it never asks for any. So both sleeves are **entry-or-pass on a fresh position**, and no output ever states a position size. Strike, expiry, and sizing happen at your broker. See `CLAUDE.md` for the full trading profile.
 
 ## Run it
 
-Two processes: the Next.js app and the python sidecar (a FastAPI wrapper around moomoo-api + yfinance that also computes the deterministic indicators). moomoo OpenD must be running locally on `127.0.0.1:11111`.
+Two processes. moomoo OpenD must be running on `127.0.0.1:11111`.
 
 ```bash
-# terminal 1 — python sidecar (runs from ~/.moomoo-venv)
-cd python_backend && ./run.sh
-
-# terminal 2 — next app
-pnpm dev
+cd python_backend && ./run.sh   # FastAPI sidecar (from ~/.moomoo-venv)
+pnpm dev                        # Next app -> localhost:3000
 ```
 
-Open http://localhost:3000.
+Tests: `pnpm test` (vitest, wheel logic) and `cd python_backend && pytest` (indicator math).
 
 ### Environment
 
-Set in `.env.local` (Next app) — see `src/lib/env.ts`:
+In `.env.local` — see `src/lib/env.ts`:
 
-- `OPENROUTER_API_KEY` — LLM provider (OpenAI-compatible). `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite-preview`.
-- `GEMINI_API_KEY` — web-grounded surfaces (Stock Digest panel + Macro briefing). `GEMINI_GROUNDED_MODEL` defaults to `gemini-2.5-flash`.
-- `MASSIVE_API_KEY` — SEC Form 4 insider data (panel degrades gracefully to "no activity" when unset).
-- `PYBACKEND_URL` — python sidecar (default `http://localhost:8765`).
+| Var | Purpose |
+|---|---|
+| `OPENROUTER_API_KEY` | LLM provider. `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite-preview` |
+| `GEMINI_API_KEY` | Web-grounded surfaces (Stock Digest, Macro briefing) |
+| `MASSIVE_API_KEY` | SEC Form 4 insider data; degrades to "no activity" when unset |
+| `PYBACKEND_URL` | Sidecar, default `http://localhost:8765` |
 
----
-
-## Data layers
-
-- **moomoo OpenD** — the three anomaly feeds (capital/technical/derivatives), news, digest, community feed, and peer graph. Reached via the python sidecar and `src/lib/moomoo/httpApi.ts`.
-- **yfinance (via sidecar)** — fundamentals (incl. next-earnings and ex-dividend dates) plus daily OHLCV. The OHLCV is what powers the **deterministic, server-computed** layers: technical indicators, the IV/HV vol summary (and the 1-SD expected move derived from its ATM IV), and the price-action signal. These are computed in Python/TS and cited verbatim — never inferred by the LLM.
-
-### Storage
-
-One SQLite file, `data/app.sqlite`, **owned entirely by the python sidecar**. It caches yfinance daily bars (`daily_closes` / `daily_ohlcv` + their sync logs) so HV and the price-action signal don't re-fetch on every request; the schema lives in `python_backend/main.py` (`_db_init`). The Next.js side no longer opens a database at all — the journal and Flex-sync tables that needed one are gone, along with the `better-sqlite3` dependency. The cache is fully rebuildable: delete the file and the sidecar recreates and repopulates it from yfinance.
-- **Massive (ex-Polygon)** — SEC Form 4 insider buys/sells (`src/lib/massive/insider.ts`).
-
-LLM calls go through OpenRouter's `/chat/completions` (`src/lib/gemini/client.ts`); the `src/lib/gemini/` directory name is historical.
-
----
-
-## Panels
-
-Each panel is a structured analyst read on one slice of the picture. The eight panels run in parallel, each one its own LLM call against a focused prompt.
-
-### Fundamentals — `src/lib/gemini/panels/fundamentals.ts`
-
-Source: yfinance via `/fundamentals` on the python sidecar.
-
-Reads the long-horizon "is this a quality company" view. Categories cited in bullets: **[Valuation]** (P/E trailing & forward, PEG, P/B, P/S), **[Growth]** (revenue YoY, earnings YoY, earnings QoQ — flags decelerating growth even when absolute numbers still beat), **[Profitability]** (profit margins, operating margins, ROE; flags negative margins and FCF burn), **[Balance sheet]** (debt-to-equity, free cash flow, total cash, current ratio), **[Analyst view]** (recommendationKey, target mean price vs current — % upside/downside, number of analyst opinions), **[Calendar]** (next earnings date — flagged if within ~10 days because IV will crush after the print; plus the ex-dividend date when within ~30 days, which the verdict uses to flag early-assignment risk on short calls).
-
-Meta row (4 stats): forward P/E, revenue YoY, profit margin, next earnings date.
-
-Direction is `bullish` when growth >10% YoY + profitable + analyst buy + price not extended; `bearish` when growth negative or decelerating, OR margins compressing, OR debt-to-equity high while FCF negative; `mixed` for contradictory signals; `n/a` for ETFs and small caps where yfinance returns mostly nulls.
-
-### Capital Anomaly — `src/lib/gemini/panels/capital.ts`
-
-Source: moomoo `get_financial_unusual` (last 30 days by default).
-
-Three classes of capital-flow anomaly: 资金分布与买卖经纪商 (capital distribution + buy/sell brokers), 资金流向 (net inflow/outflow), 卖空情况 (short selling). Bullish when major capital is net inflowing, supportive brokers buying, falling shorts. Bearish on persistent outflow, short-ratio spikes, smart-money exit. Each bullet preserves dates, amounts, ratios, broker names from the underlying tool — the model is not allowed to invent thresholds.
-
-### Technical Anomaly — `src/lib/gemini/panels/technical.ts`
-
-Sources: moomoo `get_technical_unusual` (last 30 days) **plus** a server-computed indicator snapshot from yfinance daily OHLCV (`/technical/indicators` on the sidecar).
-
-Two distinct things, merged in one panel:
-
-- **Anomaly EVENTS** (moomoo): K-line patterns + indicator crosses — CCI, KDJ, RSI, BIAS, ARBR, VR, PSY, OSC, WMSR, MACD, BOLL, MA. These fire only on a *new* cross/breakout inside the window.
-- **Standing STATE** (deterministic, cited verbatim): current RSI(14), MACD/signal/hist, Bollinger %B, distance vs SMA20/50/200, 52w-high proximity, recent returns — and the **regime/divergence overlay**: ADX(14) with +DI/−DI, a `regime` label (`strong_uptrend` / `uptrend` / `range` / `downtrend` / `strong_downtrend`), and `rsiDivergence` (`bearish` / `bullish` / `none`). The anomaly feed often reads 无异常 even when the chart is plainly overbought/oversold — the snapshot fills that gap.
-
-The regime/divergence overlay exists to stop the "overbought → sell calls / oversold → buy the dip" reflex: an oscillator extreme inside a trending regime (ADX ≥ 20) is treated as **momentum continuation**, not exhaustion, unless RSI divergence confirms a rollover. Only in a `range` regime (ADX < 20) does an extreme read as a standalone mean-reversion fade. The verdict synth enforces the same gate — see "Decision flow".
-
-### Derivatives Breakdown — `src/lib/gemini/panels/derivatives.ts`
-
-Sources: moomoo `get_derivative_unusual` (last 30 days) **plus** a server-computed structured vol snapshot (`/options/vol-summary` — moomoo chain ATM IV + yfinance realized HV).
-
-- **Anomaly EVENTS** (moomoo): PCR (put/call ratio), IV percentile, large block trades, smart-money detection, put/call skew callouts, CBBC street-share for HK names.
-- **Vol snapshot** (deterministic, cited verbatim): ATM IV (call + put legs, by strike), HV30 and HV60 (sqrt(252)-annualized), the **IV/HV ratio**, and 25Δ skew (put IV @ Δ≈−0.25 minus call IV @ Δ≈+0.25). The model must quote these numbers rather than infer "IV is high" from the anomaly prose — these server numbers also flow into the verdict's vega decision.
-
-This panel is the primary driver for the (credit-only) derivatives sleeve. The verdict synth is required to read its IV regime + IV-HV + skew before picking a strategy — see "Decision flow".
-
-### News Flow — `src/lib/gemini/panels/news.ts`
-
-Sources: moomoo news search on the ticker (last ~12 items, sorted by publish time) **plus** a sector **peer read-through** — news collated across the ticker's moomoo peer graph.
-
-Headlines + URLs + recency, preserved verbatim and clickable in the UI. The peer read-through surfaces sector-wide moves (a supplier guidance cut, a competitor's print) that a single-ticker news scan would miss. Direction is the dominant news sentiment, weighted to the ticker itself with peers as context.
-
-### Insider Flow — `src/lib/gemini/panels/insider.ts`
-
-Source: SEC Form 4 filings via Massive (ex-Polygon).
-
-Recent insider buys/sells — who (officer/director/10% owner), how much, at what price, and net direction. Cluster buying by multiple insiders is a stronger bullish tell than a single transaction; routine 10b5-1 sells are discounted. Degrades to "No insider activity" when the data source is unavailable or the key is unset (never fails the run).
-
-### Stock Digest — `src/lib/gemini/panels/digest.ts`
-
-Source: moomoo's "digest" news view — typically broker reports, analyst notes, and longer-form research items as opposed to the breaking-news flow.
-
-### Community Sentiment — `src/lib/gemini/panels/sentiment.ts`
-
-Source: moomoo community/feed posts on the ticker.
-
-Aggregates retail discussion tone — bullish / bearish / neutral counts, plus the meta row of post counts. Useful as a contra-indicator at extremes (everyone bullish on retail forums = caution).
-
----
-
-## Decision flow
-
-The page orchestrates three routes per ticker analysis. `/api/prep` is the fail-fast gate; the eight panel calls fan out in parallel from the client, then the verdict synthesizes them. Each step renders into the UI as soon as it resolves — no one big bundled response.
+## Architecture
 
 ```mermaid
 flowchart TD
-    A["POST /api/prep (ticker)<br/>snapshot + earnings pre-flight"] --> S0{"moomoo snapshot<br/>recognizes ticker?"}
-    S0 -- no --> R["Reject 404<br/>TICKER_NOT_FOUND"]
-    S0 -- yes --> S2
-
-    subgraph S2["8 × POST /api/panel/[name] (parallel · 8 LLM calls)"]
-        direction LR
-        P1[Fundamentals]
-        P2[Capital]
-        P3[Technical]
-        P4[Derivatives]
-        P5[News]
-        P6[Digest]
-        P7[Sentiment]
-        P8[Insider]
-    end
-
-    S2 --> S3["POST /api/verdict (1 LLM call)<br/>panels + priceAction + technicalIndicators<br/>+ expectedMove + macro<br/>→ confidence, rationale, riskFactor,<br/>stock sleeve, derivatives sleeve"]
-
-    S3 --> OUT["Verdict"]
+    A["POST /api/prep<br/>snapshot + earnings pre-flight"] --> S0{"ticker recognized?"}
+    S0 -- no --> R["404 TICKER_NOT_FOUND"]
+    S0 -- yes --> S2["8 × POST /api/panel/[name]<br/>(parallel, 8 LLM calls)"]
+    S2 --> S3["POST /api/verdict (1 LLM call)<br/>panels + priceAction + indicators + wheel plan + macro"]
+    S3 --> OUT["Verdict: stock sleeve + wheel sleeve"]
 ```
 
-### How the verdict is reasoned (stage 3)
+Each step renders as soon as it resolves. The **python sidecar owns all deterministic math** — indicators, levels, vol, and the option chain are computed in Python and cited verbatim; the LLM never recomputes them.
 
-The synth prompt frames the model as the head PM at an institutional desk running a barbell book. It enforces a strict decision order:
+**Storage:** one SQLite file, `data/app.sqlite`, owned entirely by the sidecar (`store.py`). It caches yfinance daily bars so HV and price-action don't refetch per request. Fully rebuildable — delete it and the sidecar repopulates.
 
-0. **No portfolio data.** The prompt opens by telling the model it has no account, NAV, cash, or positions. That constraint drives three hard rules it must follow: entry-or-pass actions only, never state a size, and never assume the user holds shares/cash/options. `SELL_COVERED_CALL` and `SELL_CASH_SECURED_PUT` stay on the menu but their instruction must open by naming the unverified prerequisite ("Only if you hold at least 100 shares: …"). A `stripSizingPhrases()` pass in `synth.ts` scrubs any "% NAV" / contract-count prose the model emits anyway.
+## Panels
 
-1. **Each sleeve has its own independent confidence** (0-100) on its own clock. `stock.confidence` is the multi-week-to-multi-quarter read; `derivatives.confidence` is the 30-45 DTE read, scored **only** on short-term signal agreement. Cross-horizon tension (long-term bullish + short-term bearish) is expected and must NOT lower derivatives confidence.
+Eight panels run in parallel, each one LLM call against a focused prompt.
 
-2. **Stock sleeve action ∈ {OPEN, PASS}**: OPEN when conviction ≥60 and direction is decisive; otherwise PASS.
+| Panel | Source | Reads |
+|---|---|---|
+| **Fundamentals** | yfinance | Valuation, growth, margins, balance sheet, analyst targets, earnings + ex-div dates. The quality filter — and it matters more here than to a premium seller, since assignment means actually owning the company. |
+| **Wheel Entry** | moomoo chain + yfinance | The acquisition zone, the vol regime, and per-strike tables for both legs. See below. |
+| **Technical** | moomoo `get_technical_unusual` + computed indicators | Anomaly *events* (K-line patterns, indicator crosses) plus standing *state*: RSI, MACD, Bollinger %B, SMA distances, ADX/±DI, a `regime` label, and `rsiDivergence`. The anomaly feed often reads 无异常 while the chart is plainly extended; the snapshot fills that gap. |
+| **Capital** | moomoo `get_financial_unusual` | Capital distribution, broker flow, net in/outflow, short selling. |
+| **News Flow** | moomoo news + Morningstar + peer graph | Headlines with URLs, Morningstar fair value / moat / bull-bear, and a sector peer read-through. |
+| **Stock Digest** | Gemini, web-grounded | Broker reports and analyst notes; a live read on the near-term setup. |
+| **Community Sentiment** | moomoo feed | Retail tone — a contra-indicator at extremes. |
+| **Insider Flow** | SEC Form 4 via Massive | Discretionary buys/sells only; routine 10b5-1 plan sales are discounted. |
 
-3. **Falling-knife / momentum guard (HIGHEST PRIORITY — checked first)**. The payload's server-computed `priceAction` block (`/price-action`, yfinance daily OHLCV) classifies the tape as `breakdown` / `breakout` / `none`. This is a HARD gate against the single worst conservative-trader mistake: selling premium *into* the move. It is also enforced **deterministically in code** after the LLM responds (`synth.ts`), so a model that ignores the prompt still gets overridden to PASS.
-   - `priceAction.signal === "breakdown"` → `SELL_PUT_SPREAD` and `SELL_CASH_SECURED_PUT` are FORBIDDEN (don't sell downside premium into a confirmed breakdown). Default PASS; only `SELL_CALL_SPREAD` if the bearish thesis is independently clean. The rationale must quote a concrete `reasons` item (e.g. "9.2% below 50d MA, 7 consecutive down days").
-   - `priceAction.signal === "breakout"` → mirror logic: `SELL_CALL_SPREAD` / `SELL_COVERED_CALL` forbidden into a melt-up.
-   - This gate **outranks** the technical panel: an oversold-rebound "bullish" technical read does not override an active breakdown.
+## The wheel read
 
-4. **Overbought/oversold regime gate** (reads the `technicalIndicators` block — `regime`, `adx14`, `+DI`/`−DI`, `rsiDivergence`). An oscillator extreme is a *momentum* reading, not a reversal:
-   - Trending regime (ADX ≥ 20) with no confirming divergence → the extreme is **continuation**. An overbought-in-uptrend must NOT create/reinforce a `SELL_CALL_SPREAD` fade (the call-side falling knife); an oversold-in-downtrend must NOT create/reinforce a `SELL_PUT_SPREAD`/CSP "buy the dip" (the put-side falling knife, this user's signature mistake).
-   - `range` regime (ADX < 20) → the only place an oscillator extreme legitimately mean-reverts on its own.
-   - `rsiDivergence` (`bearish` at a high / `bullish` at a low) is what *upgrades* an extreme into an actionable counter-trend fade — and only if the panels already agree. Otherwise the oscillator is a sizing/extension caution, never a direction flip.
+Three deterministic pieces, computed before any LLM sees them.
 
-5. **Derivatives sleeve — credit-only, volatility before direction**. The book carries **no debit or naked structures**. The full menu: `SELL_PUT_SPREAD` (bullish credit), `SELL_CASH_SECURED_PUT` (bullish, cash caveat stated), `SELL_CALL_SPREAD` (bearish credit), `SELL_COVERED_CALL` (bearish, shares caveat stated), `IRON_CONDOR` (neutral, both wings must show IV > HV), `PASS`. Strategy is gated by IV regime, then matched to the directional bias:
-   - **IV percentile HIGH (>~70)** → credit is mathematically rich; match the credit trade to bias (bullish → CSP/`SELL_PUT_SPREAD`; bearish → covered call/`SELL_CALL_SPREAD`; strictly neutral → `IRON_CONDOR`). High IV does NOT default to bullish.
-   - **IV percentile LOW (<~30)** → premium is cheap; PASS is acceptable on a marginal thesis. Only commit when conviction ≥70 with strong directional support.
-   - **IV middle (~30-70)** → credit matched to bias when conviction ≥55; PASS if conviction <55 AND IV-HV is at parity.
-   - **IV-HV check (tiered)**: ≥1.2× = required "premium is rich"; ≥1.5× = preferred; ≥2× = ideal, selling favored regardless of bias. <1.2× = treat as no premium.
-   - **IV-HV discount guard**: IV/HV < ~0.9 means the market prices *less* movement than the stock is realizing — a credit seller is structurally underpaid. Default PASS, overridable only at conviction ≥75 with the short strike beyond both the level and the expected move. Like the falling-knife guard, this is **also enforced deterministically in code** after the LLM responds.
-   - **Skew check**: 25Δ put skew ≥ +0.03 → put-side credit collects fear premium; ≤ −0.03 → call-side credit collects right-tail premium.
-   - **Leveraged ETFs**: for daily-reset 2x/3x products (TQQQ, SOXL, …) prefer the spread variants over CSP/covered call — daily-reset decay makes assignment a structurally bad outcome.
+**Acquisition zone** (`src/lib/wheel/zone.ts`) — the band of prices worth owning at, bracketed from three anchors: analyst target-low, SMA200, and nearest swing support. Each is reported individually so you can dismiss one. A put strike below the band is a *good* acquisition price, inside is *fair*, above is *rich* — you'd be overpaying to get assigned. The call leg inverts: above the band is good, because you're selling richly.
 
-6. **Fundamentals as the quality filter**: a stock that screens bullish on flow + technicals but is fundamentally broken (negative FCF, decelerating growth, debt-to-equity > 3x) gets a conviction haircut. Fundamentals "neutral" on a name with strong technical/flow signals does NOT veto an entry — it just caps conviction. If `nextEarningsDate` is within ~10 days, prefer SHORT-vega income trades and ensure the chosen expiry clears the print (the user never holds a credit position through earnings).
+**Vol regime** (`/vol/regime`) — HV30 with its own trailing-1-year percentile, plus ATM IV and IV/HV, labelled `rich` / `fair` / `thin`. This is a **proxy for IV Rank, not IV Rank**: no available source carries historical implied vol, so the percentile ranks *realized* vol. Everything that surfaces it says so. Thin premium is a downgrade, never a veto — a wheeler who wants the shares is simply paid less to wait.
 
-7. **Unverifiable prerequisites are never a PASS reason.** `SELL_PUT_SPREAD` and `SELL_CALL_SPREAD` have no cash gate and no shares gate — their risk is the spread width minus credit. A bullish-to-neutral thesis at conviction ≥55 routes to `SELL_PUT_SPREAD`; bearish-to-neutral routes to `SELL_CALL_SPREAD`. Uncertainty about whether the user has cash or shares is exactly what the spreads are for. Options DTE: ~30-45 for new entries; income trades can extend to 45-60 for richer theta.
+**Strike tables** (`/options/wheel-chain` + `src/lib/wheel/score.ts`) — per-strike delta, bid/ask/mid, OI, IV and spread across expiries near 21/30/45 DTE, scored with:
 
-8. **Expected move & strike placement** (reads the server-computed `expectedMove` block — the 1-SD implied range `spot × atmIv × √(dte/365)` over the ~30 DTE expiry). Since the option chain is no longer fed to the model, it does not pick exact strikes or quote a numeric POP; instead it reasons about *where* the safe short strike sits. The conservative edge is a short strike beyond **both** the support/resistance level **and** the 1-SD bound (`expectedMove.lower` for puts, `upper` for calls). When the relevant level sits *inside* the expected move, the technically-"safe" strike is statistically exposed → widen, cut size, or PASS. The rationale cites the move verbatim (e.g. "expected move ±$14.20 (±7.1%) over 33 DTE puts the 1-SD lower bound at $185.80, below support $188").
+- **annualized yield %** = `mid/strike × 365/dte` — size-independent, so it says nothing about position size
+- **zone position**, **clears expected move**, **clears support/resistance**, **liquidity**
+- **`↓ safest`** (furthest out that still pays) and **`$ richest`** (best yield that isn't a rich strike)
 
-    **Ex-dividend early-assignment guard**: for new bearish entries when the fundamentals panel carries an ex-dividend date inside the expiry window, the synth prefers `SELL_CALL_SPREAD` (defined risk if assigned) over a covered call, and says to keep the short call comfortably OTM. Inert when no ex-div date is present.
+There's deliberately **no composite score**: yield and acquisition price pull in opposite directions — the best-paying strike is the nearest-the-money one, which is the worst price to own at. Showing the flags side by side keeps that tradeoff visible. Expected move is computed per expiry from that expiry's own ATM IV, since vol is DTE-specific.
 
-9. **Rationale must cite specific numbers from the panels** — no vague adjectives. At least one fundamentals reference is required when the fundamentals panel is non-`n/a`, and any guard or regime gate that fired must be named with its numbers.
+## How the verdict is reasoned
 
-The flow ends at the verdict. Strike, expiry, sizing, and order entry all happen at your broker — the app deliberately holds no account state.
+One LLM call reads all eight panels; `src/lib/gemini/synth.ts` enforces a strict order. Two guards are **also enforced deterministically in code**, so a model that argues around the prompt still gets overridden.
 
-### What the app deliberately does not do
+1. **No portfolio data** — entry-or-pass only, never a size, both wheel legs state their unverified prerequisite. A `stripSizingPhrases()` pass scrubs any "% NAV" prose that slips through.
+2. **Acquisition price** — the primary gate. Every reasonable strike above the zone → PASS, direction bearish. The company may be fine; the price isn't.
+3. **Falling-knife guard** — softened for this strategy. A **severe** breakdown (below the 200d plus a gap or volume blowout) forbids a new put: that's thesis damage, not a discount. A **mild** one warns and allows, with the strike required below the zone floor — an investor who wants the shares is partly buying the dip. A breakout blocks the *call* leg only.
+4. **Regime gate** — an oscillator extreme is momentum, not a reversal. Oversold inside a downtrend (ADX ≥ 20) is continuation, not a bottom; only a `range` regime mean-reverts on its own, and `rsiDivergence` is what upgrades an extreme into a real turn.
+5. **Vol regime** — a bonus that moves confidence, never a gate.
+6. **Strike placement** — the conservative edge is a short put below the zone floor, the expected-move lower bound, *and* support. When `↓ safest` and `$ richest` differ, the rationale must name the tension and pick one with a reason.
+7. **Earnings** — a mandatory cite on every verdict, and any expiry with earnings inside its window is disqualified. Ex-div inside the window flags early-assignment risk on short calls.
+8. **Rationale must quote numbers** — specific figures from the panels, at least one fundamentals reference, and any guard that fired named with its values.
 
-There is no broker connection, no position tracking, no trade journal, no P&L calendar, and no candidate screener. Those existed when the app was wired to Interactive Brokers and were removed with it. The one place held-position thinking survives is the **what-if expected-move calculator** on the derivatives sleeve: type the IV and DTE of an expiry you're eyeing and it computes the 1-SD range against live support/resistance, so you can check a short strike clears both bounds before you place it. It takes its inputs by hand and needs no account data.
+Each sleeve carries its **own confidence on its own clock**: stock is the multi-quarter thesis, wheel is "is this price a good entry". A 75% long-term hold at a 45% entry is the normal split between a good company and a good price — not disagreement, and never averaged.
+
+## What it deliberately doesn't do
+
+No broker connection, position tracking, trade journal, P&L, or ticker screener. No roll or exit advice — it can't see a position. No advice on managing anything you already hold.
