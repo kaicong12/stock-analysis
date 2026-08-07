@@ -22,7 +22,7 @@ import {
 } from "./components/icons";
 
 type PanelKey = keyof Verdict["panels"];
-const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "derivatives", "sentiment", "digest", "news", "insider"];
+const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "wheel", "sentiment", "digest", "news", "insider"];
 
 // Earnings within this many days (inclusive) triggers the pre-search confirm
 // gate — matches the conservative "no binary events in the 30-45 DTE expiry
@@ -344,7 +344,7 @@ export default function Page() {
                 symbol: state.symbol,
                 generatedAt: new Date().toISOString(),
                 snapshot: state.snapshot,
-                capital: null, technical: null, derivatives: null, news: null,
+                capital: null, technical: null, news: null,
                 sentiment: null, fundamentals: null,
                 verdict: heroData, errors: state.errors,
               }} />
@@ -398,7 +398,7 @@ export default function Page() {
                   symbol: state.symbol,
                   generatedAt: new Date().toISOString(),
                   snapshot: state.snapshot,
-                  capital: null, technical: null, derivatives: null, news: null,
+                  capital: null, technical: null, news: null,
                   sentiment: null, fundamentals: null,
                   verdict: state.verdict, errors: state.errors,
                 }}
@@ -454,7 +454,7 @@ function panelIcon(name: PanelKey): ReactNode {
   switch (name) {
     case "capital": return <IconCapital />;
     case "technical": return <IconChart />;
-    case "derivatives": return <IconOptions />;
+    case "wheel": return <IconOptions />;
     case "news": return <IconNews />;
     case "digest": return <IconDoc />;
     case "sentiment": return <IconHeart />;

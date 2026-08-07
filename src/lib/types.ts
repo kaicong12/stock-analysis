@@ -447,13 +447,14 @@ export type StockAction =
   | "OPEN"        // Take a fresh directional position (direction tells the side).
   | "PASS";       // No entry — skip the stock sleeve.
 
+// Wheel-only. The user is a long-term investor who wheels names they want to
+// own, so the menu is the two wheel legs and nothing else — no spreads, no
+// condors, no naked or debit structures. Neither prerequisite (cash for a put,
+// shares for a call) is verifiable, so the instruction must state it.
 export type DerivativesAction =
-  | "SELL_PUT_SPREAD"        // Bullish CREDIT spread aka bull put spread (short higher put + long lower put). Cash-light CSP alternative.
-  | "SELL_CALL_SPREAD"       // Bearish CREDIT spread aka bear call spread (short lower call + long higher call). No-shares covered-call alternative.
-  | "SELL_COVERED_CALL"      // Income on stock the user already holds (≥100 sh per contract) — prerequisite is NOT verified, the instruction must state it.
-  | "SELL_CASH_SECURED_PUT"  // Income / get-assigned-cheap, backed by cash — fundability is NOT verified, the instruction must state it.
-  | "IRON_CONDOR"            // Neutral CREDIT — bull put spread + bear call spread, same expiry. SHORT vega on both wings.
-  | "PASS";                  // Skip the derivatives sleeve.
+  | "SELL_CASH_SECURED_PUT"  // Leg 1: start the wheel. Assignment is an ACCEPTED outcome, not a failure.
+  | "SELL_COVERED_CALL"      // Leg 2: only if already assigned / holding ≥100 shares per contract.
+  | "PASS";                  // Not here, not at this price.
 
 // No NAV / cash / position data reaches the synth, so there is no size field
 // here: the verdict describes the structure and the management plan, and the
@@ -487,7 +488,7 @@ export interface Verdict {
   panels: {
     capital: PanelSummary;
     technical: PanelSummary;
-    derivatives: PanelSummary;
+    wheel: PanelSummary;
     news: PanelSummary;
     digest: PanelSummary;
     sentiment: PanelSummary;
@@ -502,7 +503,7 @@ export const PANEL_KEYS: PanelKey[] = [
   "fundamentals",
   "capital",
   "technical",
-  "derivatives",
+  "wheel",
   "sentiment",
   "digest",
   "news",
@@ -516,7 +517,6 @@ export interface DashboardData {
   snapshot: SnapshotResult | null;
   capital: AnomalyResult | null;
   technical: AnomalyResult | null;
-  derivatives: AnomalyResult | null;
   news: NewsResult | null;
   sentiment: CommentSentimentResult | null;
   fundamentals: FundamentalsResult | null;

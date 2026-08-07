@@ -1,18 +1,19 @@
 import { collatePeerNews, getStockFeed } from "../moomoo/httpApi";
-import { getAnomaly, getFundamentals, getMorningstar, getPeers, getTechnicalIndicators, getVolSummary } from "../moomoo/sidecar";
+import { getAnomaly, getFundamentals, getMorningstar, getPeers, getTechnicalIndicators } from "../moomoo/sidecar";
 import { getInsiderTransactions } from "../massive/insider";
 import { ticker as toTicker } from "../symbol";
+import { fetchWheelPlan } from "../wheel/plan";
 import type { PanelSummary } from "../types";
 import type { PanelKey } from "../types";
 import {
   analyzeCapital,
-  analyzeDerivatives,
   analyzeDigest,
   analyzeFundamentals,
   analyzeInsider,
   analyzeNews,
   analyzeSentiment,
   analyzeTechnical,
+  analyzeWheel,
 } from "./panels";
 
 export interface PanelRunResult {
@@ -46,15 +47,9 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
       ]);
       return { summary: await analyzeTechnical(data, ctx, indicators) };
     }
-    case "derivatives": {
-      // Fetch the anomaly report and the structured vol summary in parallel —
-      // they hit different upstreams (moomoo /anomaly/derivatives vs.
-      // moomoo chain + yfinance daily closes) and the panel uses both.
-      const [data, vol] = await Promise.all([
-        getAnomaly("derivatives", symbol),
-        getVolSummary(symbol),
-      ]);
-      return { summary: await analyzeDerivatives(data, ctx, vol) };
+    case "wheel": {
+      const plan = await fetchWheelPlan(ticker, symbol);
+      return { summary: await analyzeWheel(plan, ctx) };
     }
     case "news": {
       // Self-signal = Morningstar research report; peer graph for read-through,

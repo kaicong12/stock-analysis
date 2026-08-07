@@ -32,12 +32,8 @@ def pick_expiry(exp_rows: list[dict], today: dt.date, target_dte: int):
 
 
 def pick_expiries(exp_rows: list[dict], today: dt.date, target_dtes: list[int]):
-    """One expiry per target DTE, de-duplicated and date-ordered.
-
-    Nearby targets often resolve to the same contract (a single weekly can be
-    closest to both 21 and 30 DTE); collapsing them keeps the chain fetch from
-    doing identical work twice.
-    """
+    """One expiry per target DTE, de-duplicated and date-ordered. Nearby targets
+    often resolve to the same contract, so collapsing them avoids a repeat fetch."""
     seen: dict[str, dt.date] = {}
     for target in target_dtes:
         chosen = pick_expiry(exp_rows, today, target)
@@ -47,11 +43,7 @@ def pick_expiries(exp_rows: list[dict], today: dt.date, target_dtes: list[int]):
 
 
 def snapshot_by_code(ctx, codes: list[str]) -> dict[str, dict]:
-    """Chunked get_market_snapshot keyed by option code.
-
-    Imported lazily inside the function body upstream keeps moomoo off the
-    import path for routes that never touch a chain.
-    """
+    """Chunked get_market_snapshot keyed by option code."""
     from moomoo import RET_OK
 
     from util import normalize

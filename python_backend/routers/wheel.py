@@ -1,8 +1,4 @@
-"""Wheel-strategy data: the vol-regime proxy and the per-strike chain table.
-
-Both are deterministic and cited verbatim upstream. Neither infers anything —
-the LLM panel narrates these numbers, it does not recompute them.
-"""
+"""Wheel-strategy data: the vol-regime proxy and the per-strike chain table."""
 
 import datetime as dt
 
@@ -26,11 +22,7 @@ HV_RANK_BARS = 282
 
 
 def _atm_iv(ctx, symbol: str, spot: float, target_dte: int) -> tuple[float | None, str | None, int | None]:
-    """ATM IV (decimal) at the expiry nearest target_dte, or (None, None, None).
-
-    Vol regime degrades to the HV half rather than failing when the chain is
-    unavailable — a name with no listed options still has a realized-vol rank.
-    """
+    """ATM IV (decimal) at the expiry nearest target_dte, or (None, None, None)."""
     ret, exp = ctx.get_option_expiration_date(code=symbol)
     if ret != RET_OK:
         return None, None, None
@@ -89,11 +81,9 @@ def vol_regime(
 ):
     """HV30 with its own trailing-1yr percentile, plus IV/HV.
 
-    This is a PROXY for IV Rank, not IV Rank: no available data source carries
-    historical implied vol, so the percentile ranks REALIZED vol against its own
-    year. Callers must label it as such.
-
-    Always 200 — a thin or missing series yields label 'n/a', never an error.
+    A PROXY for IV Rank, not IV Rank: no data source carries historical implied
+    vol, so the percentile ranks REALIZED vol. Callers must label it as such.
+    Always 200 — a thin series yields label 'n/a', never an error.
     """
     yf_ticker = to_yf_ticker(symbol)
     closes = daily_closes(yf_ticker, n_bars=HV_RANK_BARS)
@@ -152,12 +142,8 @@ def vol_regime(
 
 
 def _leg_rows(chain_rows: list[dict], snaps: dict[str, dict], side: str) -> list[dict]:
-    """Per-strike rows for one side of one expiry.
-
-    A strike with no bid is dropped outright: it cannot be sold, so it is not a
-    candidate. IV arrives as a percentage from moomoo and is normalized to a
-    decimal here to match HV.
-    """
+    """Per-strike rows for one side of one expiry. A strike with no bid is
+    dropped: it cannot be sold, so it is not a candidate."""
     out: list[dict] = []
     for r in chain_rows:
         code = r.get("code")
@@ -194,11 +180,8 @@ def wheel_chain(
     symbol: str = Query(..., description="e.g. US.AAPL"),
     target_dtes: str = Query("", description="Comma-separated DTEs; defaults to 21,30,45"),
 ):
-    """Per-strike puts and calls across a few near-dated expiries.
-
-    Puts are limited to strikes at/below spot and calls at/above: the wheel only
-    ever sells OTM on either leg, so ITM rows are noise.
-    """
+    """Per-strike puts and calls across a few near-dated expiries. Puts are
+    limited to at/below spot and calls at/above — the wheel sells OTM only."""
     targets = WHEEL_TARGET_DTES
     if target_dtes.strip():
         parsed = [int(p) for p in target_dtes.split(",") if p.strip().isdigit()]

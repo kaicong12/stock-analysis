@@ -43,12 +43,8 @@ def historical_vol(closes: list[float], window: int) -> float | None:
 
 
 def historical_vol_series(closes: list[float], window: int = 30) -> list[float]:
-    """HV at every bar that has a full `window` of returns behind it, ascending.
-
-    Same convention as historical_vol (sqrt(252), sample stddev) but walks the
-    window forward once instead of recomputing from scratch per offset, so a
-    year of history costs one pass.
-    """
+    """HV at every bar with a full `window` behind it, ascending. Same convention
+    as historical_vol, so its last element equals historical_vol exactly."""
     if len(closes) < window + 1:
         return []
     returns = [
@@ -63,11 +59,8 @@ def historical_vol_series(closes: list[float], window: int = 30) -> list[float]:
 
 
 def percentile_rank(series: list[float], value: float) -> float | None:
-    """Where `value` sits within `series`, 0-100.
-
-    Ties count as half, the standard mid-rank convention — so a flat series
-    reads 50 (neither high nor low) rather than 0 or 100.
-    """
+    """Where `value` sits within `series`, 0-100. Ties count as half, so a flat
+    series reads 50 rather than 0 or 100."""
     if not series:
         return None
     below = sum(1 for s in series if s < value)

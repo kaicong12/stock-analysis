@@ -2,7 +2,7 @@
 // Fundamentals is the exception: yfinance via the python sidecar.
 export { analyzeCapital } from "./capital";
 export { analyzeTechnical } from "./technical";
-export { analyzeDerivatives } from "./derivatives";
+export { analyzeWheel } from "./wheel";
 export { analyzeNews } from "./news";
 export { analyzeDigest } from "./digest";
 export { analyzeSentiment } from "./sentiment";

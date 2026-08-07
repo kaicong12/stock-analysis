@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
-import { computeExpectedMove, synthesizeVerdict } from "../../../lib/gemini/synth";
-import { getPriceAction, getTechnicalIndicators, getVolSummary } from "../../../lib/moomoo/sidecar";
+import { synthesizeVerdict } from "../../../lib/gemini/synth";
+import { getPriceAction, getTechnicalIndicators } from "../../../lib/moomoo/sidecar";
+import { fetchWheelPlan } from "../../../lib/wheel/plan";
 import type { PanelSummary, SnapshotResult } from "../../../lib/types";
 
 export const runtime = "nodejs";
@@ -15,7 +16,7 @@ interface VerdictBody {
   panels?: {
     capital: PanelSummary;
     technical: PanelSummary;
-    derivatives: PanelSummary;
+    wheel: PanelSummary;
     news: PanelSummary;
     digest: PanelSummary;
     sentiment: PanelSummary;
@@ -35,14 +36,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "ticker, symbol, and panels are required" }, { status: 400 });
   }
   try {
-    // Price-action signal, standing technical indicators, and the vol snapshot
-    // are fetched server-side (deterministic data, not client-provided) so the
-    // falling-knife guard can't be bypassed and the figures are trustworthy.
-    // None throws — null degrades gracefully (guard no-ops / overlay ignored).
-    const [priceAction, technicalIndicators, volSummary] = await Promise.all([
+    // Fetched server-side (deterministic, not client-provided) so the breakdown
+    // guard can't be bypassed. None throws — null degrades gracefully.
+    const [priceAction, technicalIndicators, wheelPlan] = await Promise.all([
       getPriceAction(body.symbol),
       getTechnicalIndicators(body.symbol),
-      getVolSummary(body.symbol),
+      fetchWheelPlan(body.ticker, body.symbol).catch(() => null),
     ]);
     const verdict = await synthesizeVerdict({
       ticker: body.ticker,
@@ -50,10 +49,7 @@ export async function POST(request: NextRequest) {
       snapshot: body.snapshot ?? null,
       priceAction,
       technicalIndicators,
-      // 1-SD expected move from ATM IV — feeds the strike-placement check.
-      expectedMove: computeExpectedMove(volSummary),
-      // Raw IV/HV — feeds the deterministic IV-HV discount guard.
-      ivHvRatio: volSummary?.ivHvRatio ?? null,
+      wheelPlan,
       macroContext: body.macroContext ?? null,
       panels: body.panels,
     });
