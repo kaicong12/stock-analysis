@@ -96,6 +96,24 @@ function StrikeRow({ r }: { r: ScoredStrike }) {
   );
 }
 
+const TIPS = {
+  delta: "Approximate probability of assignment at this strike.",
+  bid: "What a buyer is bidding right now — the credit you could actually sell into.",
+  mid: "Midpoint of bid and ask. The ann% column is computed from this, so a wide spread means the real fill is lower.",
+  put: {
+    strike: "The price you'd be obliged to buy at if assigned. Every strike listed is already below the 1-SD expected move.",
+    ann: "Annualized yield: mid ÷ strike × 365/DTE. The credit as a yearly rate on the cash a cash-secured put ties up, so expiries of different lengths compare directly. A rate, never a dollar amount — sizing happens at your broker.",
+    zone: "Where the strike sits against the acquisition zone. good = below every anchor, a price worth owning at · fair = inside the band · rich = above it, so assignment means overpaying. A label, not a filter: rich strikes are still listed.",
+    level: "✓ when the strike sits below nearest support — a second opinion from the chart, independent of the expected move.",
+  },
+  call: {
+    strike: "The price you'd be obliged to sell your shares at if assigned. Every strike listed is already above the 1-SD expected move.",
+    ann: "Annualized yield: mid ÷ spot × 365/DTE. Divided by spot, not strike, because the capital committed is the shares you already hold. A rate, never a dollar amount — sizing happens at your broker.",
+    zone: "Where the strike sits against the acquisition zone, inverted for a call since this is a price you'd sell at. good = above the band, selling well · fair = inside · rich = below it.",
+    level: "✓ when the strike sits above nearest resistance — a second opinion from the chart, independent of the expected move.",
+  },
+} as const;
+
 function LegTable({ legs, side }: { legs: ScoredExpiry[]; side: "put" | "call" }) {
   if (!legs.length) return <div className={styles.whatIfNote}>No quotable strikes.</div>;
   return (
@@ -106,7 +124,10 @@ function LegTable({ legs, side }: { legs: ScoredExpiry[]; side: "put" | "call" }
             <span className="tabular-nums">
               {e.expiry} · {e.dte}d
             </span>
-            <span className={styles.whatIfLabel}>
+            <span
+              className={styles.whatIfLabel}
+              title="The 1-SD expected move: spot × ATM IV × √(DTE/365). Roughly a 68% chance the price stays inside this band by expiry. Only strikes beyond it are listed below."
+            >
               ATM IV {e.atmIv === null ? "—" : `${(e.atmIv * 100).toFixed(1)}%`} · 1-SD{" "}
               {e.emLower === null ? "—" : fmtNum(e.emLower)}–{e.emUpper === null ? "—" : fmtNum(e.emUpper)}
             </span>
@@ -120,15 +141,13 @@ function LegTable({ legs, side }: { legs: ScoredExpiry[]; side: "put" | "call" }
             <table className={styles.wheelTable + " tabular-nums"}>
               <thead>
                 <tr>
-                  <th>strike</th>
-                  <th title="approximate assignment probability">Δ≈</th>
-                  <th>bid</th>
-                  <th>mid</th>
-                  <th>ann%</th>
-                  <th>zone</th>
-                  <th title={side === "put" ? "clears support" : "clears resistance"}>
-                    {side === "put" ? "sup" : "res"}
-                  </th>
+                  <th title={TIPS[side].strike}>strike</th>
+                  <th title={TIPS.delta}>Δ≈</th>
+                  <th title={TIPS.bid}>bid</th>
+                  <th title={TIPS.mid}>mid</th>
+                  <th title={TIPS[side].ann}>ann%</th>
+                  <th title={TIPS[side].zone}>zone</th>
+                  <th title={TIPS[side].level}>{side === "put" ? "sup" : "res"}</th>
                 </tr>
               </thead>
               <tbody>
