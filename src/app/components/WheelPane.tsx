@@ -114,6 +114,16 @@ const TIPS = {
   },
 } as const;
 
+function Th({ tip, end, children }: { tip: string; end?: boolean; children: React.ReactNode }) {
+  return (
+    <th>
+      <span className={styles.tip + (end ? " " + styles.tipEnd : "")} data-tip={tip} tabIndex={0}>
+        {children}
+      </span>
+    </th>
+  );
+}
+
 function LegTable({ legs, side }: { legs: ScoredExpiry[]; side: "put" | "call" }) {
   if (!legs.length) return <div className={styles.whatIfNote}>No quotable strikes.</div>;
   return (
@@ -125,8 +135,9 @@ function LegTable({ legs, side }: { legs: ScoredExpiry[]; side: "put" | "call" }
               {e.expiry} · {e.dte}d
             </span>
             <span
-              className={styles.whatIfLabel}
-              title="The 1-SD expected move: spot × ATM IV × √(DTE/365). Roughly a 68% chance the price stays inside this band by expiry. Only strikes beyond it are listed below."
+              className={styles.whatIfLabel + " " + styles.tip}
+              data-tip="The 1-SD expected move: spot × ATM IV × √(DTE/365). Roughly a 68% chance the price stays inside this band by expiry. Only strikes beyond it are listed below."
+              tabIndex={0}
             >
               ATM IV {e.atmIv === null ? "—" : `${(e.atmIv * 100).toFixed(1)}%`} · 1-SD{" "}
               {e.emLower === null ? "—" : fmtNum(e.emLower)}–{e.emUpper === null ? "—" : fmtNum(e.emUpper)}
@@ -141,13 +152,13 @@ function LegTable({ legs, side }: { legs: ScoredExpiry[]; side: "put" | "call" }
             <table className={styles.wheelTable + " tabular-nums"}>
               <thead>
                 <tr>
-                  <th title={TIPS[side].strike}>strike</th>
-                  <th title={TIPS.delta}>Δ≈</th>
-                  <th title={TIPS.bid}>bid</th>
-                  <th title={TIPS.mid}>mid</th>
-                  <th title={TIPS[side].ann}>ann%</th>
-                  <th title={TIPS[side].zone}>zone</th>
-                  <th title={TIPS[side].level}>{side === "put" ? "sup" : "res"}</th>
+                  <Th tip={TIPS[side].strike}>strike</Th>
+                  <Th tip={TIPS.delta}>Δ≈</Th>
+                  <Th tip={TIPS.bid}>bid</Th>
+                  <Th tip={TIPS.mid} end>mid</Th>
+                  <Th tip={TIPS[side].ann} end>ann%</Th>
+                  <Th tip={TIPS[side].zone} end>zone</Th>
+                  <Th tip={TIPS[side].level} end>{side === "put" ? "sup" : "res"}</Th>
                 </tr>
               </thead>
               <tbody>

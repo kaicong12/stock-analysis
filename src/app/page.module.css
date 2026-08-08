@@ -1172,6 +1172,49 @@
   white-space: nowrap;
 }
 
+.tip {
+  position: relative;
+  cursor: help;
+  border-bottom: 1px dotted var(--outline);
+}
+
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 10px;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  color: var(--on-surface);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.tipEnd::after {
+  left: auto;
+  right: 0;
+}
+
+.tip:hover::after,
+.tip:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+
 .wheelWarning,
 .wheelBlocked {
   margin-top: 4px;
