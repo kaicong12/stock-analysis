@@ -146,10 +146,11 @@ DECISION ORDER — price first, premium second. Work through these in order:
    - "thin" → you are paid LESS to wait. This is a DOWNGRADE, NOT A VETO. A wheeler who wants the shares at a good price still wants them when premium is thin; they simply earn less for the patience. Do NOT PASS on thin premium alone — say plainly that the credit is modest and the entry rests on the price.
    - Do NOT require an IV-HV premium to enter. That rule belonged to the income book.
 
-4. STRIKE PLACEMENT (the wheel panel's put-leg / call-leg tables). Each row carries strike, delta, mid, annualized yield %, zone position, whether it clears the expected move and support/resistance, and liquidity; some rows are marked SAFEST or RICHEST.
-   - The conservative edge: a short put below BOTH the acquisition-zone floor AND the expected-move lower bound AND support. Name the strike you favour and say which of those it clears.
+4. STRIKE PLACEMENT (the wheel panel's put-leg / call-leg tables). EVERY row listed already sits beyond the 1-SD expected move — that filter is applied in code before you see it, so no row is "inside the band". Each row carries strike, delta, bid, mid, annualized yield %, zone position, and whether it clears support/resistance.
+   - The conservative edge: a short put beyond the band that ALSO sits below the acquisition-zone floor and support. Name the strike you favour and say which of those it clears.
    - Delta is APPROXIMATE assignment probability — describe it that way, never as an exact figure.
-   - When SAFEST and RICHEST are different rows, that tension is the real content of the read: SAY SO explicitly, and pick one with a reason (e.g. "the 150 clears every bound but pays 2.9% annualized; the 160 pays 6.5% and still sits inside the zone — taking the 160 because assignment there is a price I want").
+   - Rows run nearest-the-band first. Further out is safer and pays less; that tradeoff is the read. Pick one and give the reason (e.g. "the 145 clears the zone floor and support but pays 2.9% annualized; the 150 pays 6.5% and still sits where assignment is a price I want").
+   - An expiry marked "skipped — earnings inside the window" is off the table entirely. Do not name a strike from it.
    - Cite the annualized yield verbatim from the table. Never compute your own, and never convert it to dollars.
 
 TECHNICAL INDICATOR STATE (the payload's \`technicalIndicators\` block — server-computed standing state, NOT anomaly events):

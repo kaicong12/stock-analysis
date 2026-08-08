@@ -22,8 +22,8 @@ const ZONE_LABEL: Record<ZonePosition, string> = {
 };
 
 function zoneCls(z: ZonePosition): string {
-  if (z === "good") return styles.bullish;
-  if (z === "rich") return styles.bearish;
+  if (z === "good") return styles.actionBullish;
+  if (z === "rich") return styles.actionBearish;
   return "";
 }
 
@@ -33,7 +33,7 @@ function RegimeBlock({ r }: { r: VolRegime | null }) {
     <>
       <div className={styles.whatIfRow}>
         <span className={styles.whatIfLabel}>Vol regime</span>
-        <span className={"tabular-nums " + (r.label === "rich" ? styles.bullish : r.label === "thin" ? styles.bearish : "")}>
+        <span className={"tabular-nums " + (r.label === "rich" ? styles.actionBullish : "")}>
           {r.label}
         </span>
       </div>
@@ -53,6 +53,9 @@ function RegimeBlock({ r }: { r: VolRegime | null }) {
       <div className={styles.whatIfSub}>
         Percentile ranks <em>realized</em> vol against its own year — a proxy for IV Rank, not IV Rank.
       </div>
+      {r.chainError && (
+        <div className={styles.wheelWarning}>Chain quotes unavailable — {r.chainError}</div>
+      )}
     </>
   );
 }
@@ -80,68 +83,67 @@ function ZoneBlock({ plan }: { plan: WheelPlan }) {
 }
 
 function StrikeRow({ r }: { r: ScoredStrike }) {
-  const mark = r.safest ? "↓ safest" : r.richest ? "$ richest" : "";
   return (
     <tr>
       <td className="tabular-nums">{fmtNum(r.strike)}</td>
       <td className="tabular-nums">{r.delta === null ? "—" : Math.abs(r.delta).toFixed(2)}</td>
+      <td className="tabular-nums">{fmtNum(r.bid)}</td>
       <td className="tabular-nums">{fmtNum(r.mid)}</td>
       <td className="tabular-nums">{r.annYield === null ? "—" : `${r.annYield}%`}</td>
       <td className={zoneCls(r.zonePos)}>{ZONE_LABEL[r.zonePos]}</td>
-      <td>{r.clearsEm === null ? "—" : r.clearsEm ? "✓" : "·"}</td>
       <td>{r.clearsLevel === null ? "—" : r.clearsLevel ? "✓" : "·"}</td>
-      <td className={styles.wheelMark}>{mark}</td>
     </tr>
   );
 }
 
 function LegTable({ legs, side }: { legs: ScoredExpiry[]; side: "put" | "call" }) {
-  const withRows = legs.filter((e) => e.rows.length);
-  if (!withRows.length) return <div className={styles.whatIfNote}>No quotable strikes.</div>;
+  if (!legs.length) return <div className={styles.whatIfNote}>No quotable strikes.</div>;
   return (
     <>
-      {withRows.map((e) => (
+      {legs.map((e) => (
         <div key={e.expiry} className={styles.wheelExpiry}>
           <div className={styles.wheelExpiryHead}>
             <span className="tabular-nums">
               {e.expiry} · {e.dte}d
             </span>
             <span className={styles.whatIfLabel}>
-              1-SD {e.emLower === null ? "—" : fmtNum(e.emLower)}–{e.emUpper === null ? "—" : fmtNum(e.emUpper)}
+              ATM IV {e.atmIv === null ? "—" : `${(e.atmIv * 100).toFixed(1)}%`} · 1-SD{" "}
+              {e.emLower === null ? "—" : fmtNum(e.emLower)}–{e.emUpper === null ? "—" : fmtNum(e.emUpper)}
             </span>
-            {e.earningsInWindow && <span className={styles.bearish}>earnings in window</span>}
-            {e.exDivInWindow && <span className={styles.bearish}>ex-div in window</span>}
+            {e.exDivInWindow && <span className={styles.actionBearish}>ex-div in window</span>}
           </div>
-          <table className={styles.wheelTable + " tabular-nums"}>
-            <thead>
-              <tr>
-                <th>strike</th>
-                <th title="approximate assignment probability">Δ≈</th>
-                <th>mid</th>
-                <th>ann%</th>
-                <th>zone</th>
-                <th title="clears the 1-SD expected move">EM</th>
-                <th title={side === "put" ? "clears support" : "clears resistance"}>
-                  {side === "put" ? "sup" : "res"}
-                </th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {e.rows.map((r) => (
-                <StrikeRow key={r.strike} r={r} />
-              ))}
-            </tbody>
-          </table>
+          {e.excluded ? (
+            <div className={styles.whatIfNote}>Skipped — {e.excluded}.</div>
+          ) : !e.rows.length ? (
+            <div className={styles.whatIfNote}>No strikes beyond the band.</div>
+          ) : (
+            <table className={styles.wheelTable + " tabular-nums"}>
+              <thead>
+                <tr>
+                  <th>strike</th>
+                  <th title="approximate assignment probability">Δ≈</th>
+                  <th>bid</th>
+                  <th>mid</th>
+                  <th>ann%</th>
+                  <th>zone</th>
+                  <th title={side === "put" ? "clears support" : "clears resistance"}>
+                    {side === "put" ? "sup" : "res"}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {e.rows.map((r) => (
+                  <StrikeRow key={r.strike} r={r} />
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       ))}
     </>
   );
 }
 
-// Deterministic wheel read for the ticker under analysis: vol regime, the
-// acquisition zone, and the scored strike tables for both legs. Replaces the
-// hand-typed expected-move calculator — these are live chain quotes.
 export function WheelPane({ symbol, ticker }: { symbol: string; ticker: string }) {
   const [plan, setPlan] = useState<WheelPlan | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -201,7 +203,8 @@ export function WheelPane({ symbol, ticker }: { symbol: string; ticker: string }
           <LegTable legs={plan.callLeg} side="call" />
 
           <div className={styles.whatIfSub}>
-            Δ is approximate assignment probability. Sizing happens at your broker.
+            Only strikes beyond the 1-SD expected move are listed. Δ is approximate assignment
+            probability. Sizing happens at your broker.
           </div>
         </>
       )}

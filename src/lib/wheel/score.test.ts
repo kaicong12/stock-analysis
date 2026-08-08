@@ -19,7 +19,7 @@ function strike(over: Partial<ChainStrike> & { strike: number }): ChainStrike {
 }
 
 describe("annualizedYield", () => {
-  it("annualizes credit over the strike's committed capital", () => {
+  it("annualizes credit over the committed capital", () => {
     // 2.85/160 = 1.78% over 30 days -> x 12.17 periods
     expect(annualizedYield(2.85, 160, 30)).toBeCloseTo(21.67, 1);
   });
@@ -68,8 +68,18 @@ describe("buildWheelPlan", () => {
         expiry: "2026-09-04",
         dte: 30,
         // atmIv is read off the strike nearest spot -> 0.40 here.
-        puts: [strike({ strike: 165, mid: 4.1 }), strike({ strike: 160, mid: 2.85 }), strike({ strike: 150, mid: 1.2 })],
-        calls: [strike({ strike: 175, mid: 4.0, delta: 0.3 }), strike({ strike: 190, mid: 1.1, delta: 0.1 })],
+        puts: [
+          strike({ strike: 165, mid: 4.1 }),
+          strike({ strike: 160, mid: 2.85 }),
+          strike({ strike: 150, mid: 1.2 }),
+          strike({ strike: 145, mid: 0.95 }),
+        ],
+        calls: [
+          strike({ strike: 175, mid: 4.0, delta: 0.3 }),
+          strike({ strike: 190, mid: 1.1, delta: 0.1 }),
+          strike({ strike: 195, mid: 0.86, delta: 0.08 }),
+          strike({ strike: 210, mid: 0.4, delta: 0.03 }),
+        ],
       },
     ],
   };
@@ -94,45 +104,56 @@ describe("buildWheelPlan", () => {
     expect(leg.emUpper).toBeCloseTo(192.17, 1);
   });
 
-  it("classifies put strikes against the zone and orders nearest-the-money first", () => {
+  it("keeps only put strikes below the band, nearest the edge first", () => {
     const rows = buildWheelPlan(base).putLeg[0].rows;
-    expect(rows.map((r) => r.strike)).toEqual([165, 160, 150]);
+    // 165 and 160 sit inside the 152.63 lower bound and are dropped.
+    expect(rows.map((r) => r.strike)).toEqual([150, 145]);
     // 150 is inside the 148.90-161.20 band, so "fair" — only below 148.90 is good.
-    expect(rows.map((r) => r.zonePos)).toEqual(["rich", "fair", "fair"]);
+    expect(rows.map((r) => r.zonePos)).toEqual(["fair", "good"]);
   });
 
-  it("reads a strike below every anchor as a good acquisition price", () => {
-    const deep: WheelChain = {
-      ...chain,
-      expiries: [{ ...chain.expiries[0], puts: [strike({ strike: 140, mid: 0.9 })] }],
-    };
-    expect(buildWheelPlan({ ...base, chain: deep }).putLeg[0].rows[0].zonePos).toBe("good");
-  });
-
-  it("marks the furthest-out row safest and never marks a rich strike richest", () => {
-    const rows = buildWheelPlan(base).putLeg[0].rows;
-    expect(rows.find((r) => r.safest)?.strike).toBe(150);
-    // 165 pays the most but sits above the zone, so it is excluded.
-    const richest = rows.find((r) => r.richest);
-    expect(richest?.strike).toBe(160);
-  });
-
-  it("flags clearance against both the level and the expected move", () => {
-    const rows = buildWheelPlan(base).putLeg[0].rows;
-    const r150 = rows.find((r) => r.strike === 150)!;
-    const r160 = rows.find((r) => r.strike === 160)!;
-    expect(r150.clearsEm).toBe(true);
-    expect(r150.clearsLevel).toBe(true);
-    // 160 is below support 161.2 but inside the 152.63 lower bound.
-    expect(r160.clearsLevel).toBe(true);
-    expect(r160.clearsEm).toBe(false);
-  });
-
-  it("inverts strike order and zone reading on the call leg", () => {
+  it("keeps only call strikes above the band, nearest the edge first", () => {
     const rows = buildWheelPlan(base).callLeg[0].rows;
-    expect(rows.map((r) => r.strike)).toEqual([175, 190]);
-    expect(rows.find((r) => r.strike === 190)!.zonePos).toBe("good");
-    expect(rows.find((r) => r.strike === 190)!.clearsLevel).toBe(true);
+    // 175 and 190 sit inside the 192.17 upper bound.
+    expect(rows.map((r) => r.strike)).toEqual([195, 210]);
+    expect(rows[0].zonePos).toBe("good");
+    expect(rows[0].clearsLevel).toBe(true);
+  });
+
+  it("prices the call leg off spot, not the strike", () => {
+    const call = buildWheelPlan(base).callLeg[0].rows.find((r) => r.strike === 195)!;
+    // 0.86/172.4 over 30 days, not 0.86/195.
+    expect(call.annYield).toBeCloseTo(annualizedYield(0.86, 172.4, 30)!, 2);
+  });
+
+  it("passes every strike through when no ATM IV yields a band", () => {
+    const noIv: WheelChain = {
+      ...chain,
+      expiries: [{
+        ...chain.expiries[0],
+        puts: [strike({ strike: 165, iv: null }), strike({ strike: 160, iv: null })],
+        calls: [strike({ strike: 175, iv: null })],
+      }],
+    };
+    const leg = buildWheelPlan({ ...base, chain: noIv }).putLeg[0];
+    expect(leg.emLower).toBeNull();
+    expect(leg.rows.map((r) => r.strike)).toEqual([165, 160]);
+  });
+
+  it("flags clearance against the level", () => {
+    const rows = buildWheelPlan(base).putLeg[0].rows;
+    expect(rows.find((r) => r.strike === 150)!.clearsLevel).toBe(true);
+  });
+
+  it("caps rows so the far tail cannot crowd out the near strikes", () => {
+    const many = Array.from({ length: 30 }, (_, i) => strike({ strike: 150 - i, mid: 1.2 }));
+    const wide: WheelChain = {
+      ...chain,
+      expiries: [{ ...chain.expiries[0], puts: many }],
+    };
+    const rows = buildWheelPlan({ ...base, chain: wide }).putLeg[0].rows;
+    expect(rows).toHaveLength(8);
+    expect(rows[0].strike).toBe(150);
   });
 
   it("applies ex-div to the call leg only", () => {
@@ -142,12 +163,18 @@ describe("buildWheelPlan", () => {
     expect(plan.putLeg[0].exDivInWindow).toBe(false);
   });
 
-  it("flags earnings inside the window on both legs", () => {
+  it("drops an expiry with earnings inside the window instead of warning", () => {
     const soon = new Date(Date.now() + 12 * 86400_000).toISOString().slice(0, 10);
     const plan = buildWheelPlan({ ...base, nextEarningsDate: soon });
     expect(plan.putLeg[0].earningsInWindow).toBe(true);
+    expect(plan.putLeg[0].excluded).toBe("earnings inside the window");
+    expect(plan.putLeg[0].rows).toEqual([]);
+    expect(plan.callLeg[0].rows).toEqual([]);
+
     const far = new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10);
-    expect(buildWheelPlan({ ...base, nextEarningsDate: far }).putLeg[0].earningsInWindow).toBe(false);
+    const ok = buildWheelPlan({ ...base, nextEarningsDate: far }).putLeg[0];
+    expect(ok.excluded).toBeNull();
+    expect(ok.rows.length).toBeGreaterThan(0);
   });
 
   it("returns empty legs without a chain instead of throwing", () => {
@@ -160,20 +187,17 @@ describe("buildWheelPlan", () => {
   it("leaves zone position unknown when no zone could be built", () => {
     const plan = buildWheelPlan({ ...base, zone: null });
     expect(plan.putLeg[0].rows.every((r) => r.zonePos === "unknown")).toBe(true);
-    // With every row "unknown" rather than "rich", richest still has candidates.
-    expect(plan.putLeg[0].rows.some((r) => r.richest)).toBe(true);
   });
 
-  it("excludes illiquid rows from the safest and richest marks", () => {
+  it("keeps thin and wide-spread strikes — liquidity is not a gate", () => {
     const illiquid: WheelChain = {
       ...chain,
       expiries: [{
         ...chain.expiries[0],
-        puts: [strike({ strike: 160, mid: 2.85 }), strike({ strike: 150, mid: 1.2, openInterest: 10, spreadPct: 40 })],
+        puts: [strike({ strike: 150, mid: 1.2, openInterest: 10, spreadPct: 40 })],
       }],
     };
     const rows = buildWheelPlan({ ...base, chain: illiquid }).putLeg[0].rows;
-    expect(rows.find((r) => r.strike === 150)!.liquid).toBe(false);
-    expect(rows.find((r) => r.safest)?.strike).toBe(160);
+    expect(rows.map((r) => r.strike)).toEqual([150]);
   });
 });

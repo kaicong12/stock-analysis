@@ -13,6 +13,7 @@ export interface VolRegime {
   expiryUsed: string | null;
   dte: number | null;
   ivHv30: number | null;
+  chainError: string | null;   // set when the IV half failed but HV survived
   label: VolRegimeLabel;
   sampleBars: number;         // < 150 forces label "n/a"
 }
@@ -60,11 +61,7 @@ export interface AcquisitionZone {
 export interface ScoredStrike extends ChainStrike {
   annYield: number | null;     // percent, size-independent
   zonePos: ZonePosition;
-  clearsEm: boolean | null;
   clearsLevel: boolean | null;
-  liquid: boolean | null;
-  safest: boolean;
-  richest: boolean;
 }
 
 export interface ScoredExpiry {
@@ -75,7 +72,8 @@ export interface ScoredExpiry {
   emUpper: number | null;
   earningsInWindow: boolean;
   exDivInWindow: boolean;
-  rows: ScoredStrike[];
+  excluded: string | null;     // non-null means rows is empty
+  rows: ScoredStrike[];        // beyond emLower/emUpper, nearest edge first
 }
 
 export interface WheelPlan {

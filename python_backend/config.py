@@ -25,7 +25,8 @@ BRK_SEVERE_VOL_RATIO = 2.0
 # Wheel strategy. The vol regime is a BONUS for a wheeler who wants the shares,
 # not a gate — thin premium means you're paid less to wait, not that you pass.
 WHEEL_TARGET_DTES = [21, 30, 45]
-WHEEL_STRIKE_WINDOW = 0.20   # ± fraction of spot to pull strikes over
+WHEEL_ATM_SAMPLE = 0.05      # ± fraction of spot sampled to read the expiry's ATM IV
+WHEEL_ROWS_PER_SIDE = 12     # strikes quoted past each band edge (the UI shows 8)
 WHEEL_HV_PCT_RICH = 50.0     # HV30 trailing-1yr percentile that reads elevated
 WHEEL_IV_HV_RICH = 1.15      # IV/HV30 at which implied is meaningfully rich
 WHEEL_HV_MIN_SAMPLE = 150    # below this many ranked bars the percentile is n/a

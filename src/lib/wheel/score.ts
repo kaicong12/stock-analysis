@@ -12,21 +12,12 @@ import type {
   WheelPlan,
 } from "./types";
 
-const MIN_OPEN_INTEREST = 500;
-const MAX_SPREAD_PCT = 10;
+const MAX_ROWS = 8;
 
-// A percentage, not a dollar figure: the app has no NAV or position data, so
-// absolute risk numbers are both unavailable and forbidden (CLAUDE.md).
-export function annualizedYield(mid: number, strike: number, dte: number): number | null {
-  if (!(mid > 0) || !(strike > 0) || !(dte > 0)) return null;
-  return Number((((mid / strike) * (365 / dte)) * 100).toFixed(2));
-}
-
-function isLiquid(row: ChainStrike): boolean | null {
-  if (row.openInterest === null && row.spreadPct === null) return null;
-  const oiOk = row.openInterest === null ? true : row.openInterest >= MIN_OPEN_INTEREST;
-  const spreadOk = row.spreadPct === null ? true : row.spreadPct <= MAX_SPREAD_PCT;
-  return oiOk && spreadOk;
+// basis = the capital the leg commits: strike for a put, spot for a covered call.
+export function annualizedYield(mid: number, basis: number, dte: number): number | null {
+  if (!(mid > 0) || !(basis > 0) || !(dte > 0)) return null;
+  return Number((((mid / basis) * (365 / dte)) * 100).toFixed(2));
 }
 
 interface ScoreContext {
@@ -59,38 +50,22 @@ function scoreRows(
   const level = side === "put" ? ctx.support : ctx.resistance;
   const bound = side === "put" ? bounds.lower : bounds.upper;
 
-  const scored: ScoredStrike[] = rows.map((row) => ({
+  // No ATM IV means no band, so pass everything through rather than read empty.
+  const beyondBand = bound === null
+    ? rows
+    : rows.filter((r) => (side === "put" ? r.strike < bound : r.strike > bound));
+
+  const scored: ScoredStrike[] = beyondBand.map((row) => ({
     ...row,
-    annYield: annualizedYield(row.mid, row.strike, dte),
+    annYield: annualizedYield(row.mid, side === "put" ? row.strike : ctx.spot, dte),
     zonePos: side === "put"
       ? classifyPutStrike(row.strike, ctx.zone)
       : classifyCallStrike(row.strike, ctx.zone),
-    clearsEm: bound === null ? null : side === "put" ? row.strike < bound : row.strike > bound,
     clearsLevel: level === null ? null : side === "put" ? row.strike < level : row.strike > level,
-    liquid: isLiquid(row),
-    safest: false,
-    richest: false,
   }));
 
-  // Ranked by distance rather than delta so it survives a missing greek.
-  const tradeable = scored.filter((r) => r.liquid !== false && (r.annYield ?? 0) > 0);
-  const safest = tradeable.reduce<ScoredStrike | null>((best, r) => {
-    if (!best) return r;
-    return side === "put" ? (r.strike < best.strike ? r : best) : (r.strike > best.strike ? r : best);
-  }, null);
-  if (safest) safest.safest = true;
-
-  // "rich" is excluded whatever it pays — being paid well to transact at a bad
-  // price is the trap this pane exists to prevent.
-  const acceptable = tradeable.filter((r) => r.zonePos !== "rich");
-  const richest = acceptable.reduce<ScoredStrike | null>((best, r) => {
-    if (r.annYield === null) return best;
-    if (!best || best.annYield === null) return r;
-    return r.annYield > best.annYield ? r : best;
-  }, null);
-  if (richest) richest.richest = true;
-
-  return scored.sort((a, b) => (side === "put" ? b.strike - a.strike : a.strike - b.strike));
+  scored.sort((a, b) => (side === "put" ? b.strike - a.strike : a.strike - b.strike));
+  return scored.slice(0, MAX_ROWS);
 }
 
 function dateInWindow(iso: string | null, dte: number): boolean {
@@ -108,16 +83,23 @@ function scoreExpiry(expiry: ChainExpiry, side: "put" | "call", ctx: ScoreContex
     upper: move === null ? null : Number((ctx.spot + move).toFixed(2)),
   };
 
+  const earningsInWindow = dateInWindow(ctx.nextEarningsDate, expiry.dte);
+  // CLAUDE.md forbids an earnings expiry outright, so drop it rather than warn.
+  const excluded = earningsInWindow ? "earnings inside the window" : null;
+
   return {
     expiry: expiry.expiry,
     dte: expiry.dte,
     atmIv,
     emLower: bounds.lower,
     emUpper: bounds.upper,
-    earningsInWindow: dateInWindow(ctx.nextEarningsDate, expiry.dte),
+    earningsInWindow,
     // Ex-div only threatens a short call, via early exercise to capture the div.
     exDivInWindow: side === "call" && dateInWindow(ctx.exDividendDate, expiry.dte),
-    rows: scoreRows(side === "put" ? expiry.puts : expiry.calls, expiry.dte, side, bounds, ctx),
+    excluded,
+    rows: excluded
+      ? []
+      : scoreRows(side === "put" ? expiry.puts : expiry.calls, expiry.dte, side, bounds, ctx),
   };
 }
 

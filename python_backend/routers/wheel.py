@@ -1,14 +1,15 @@
 """Wheel-strategy data: the vol-regime proxy and the per-strike chain table."""
 
 import datetime as dt
+import math
 
 from fastapi import APIRouter, HTTPException, Query
 from moomoo import OptionType, RET_OK
 
 from bars import daily_closes
 from config import (
-    WHEEL_IV_HV_RICH, WHEEL_HV_PCT_RICH, WHEEL_STRIKE_WINDOW,
-    WHEEL_TARGET_DTES, WHEEL_HV_MIN_SAMPLE,
+    WHEEL_ATM_SAMPLE, WHEEL_IV_HV_RICH, WHEEL_HV_PCT_RICH,
+    WHEEL_ROWS_PER_SIDE, WHEEL_TARGET_DTES, WHEEL_HV_MIN_SAMPLE,
 )
 from indicators import historical_vol, historical_vol_series, percentile_rank
 from opend import quote_ctx
@@ -95,7 +96,7 @@ def vol_regime(
     series = series[-252:]
     hv30_pct = percentile_rank(series, hv30) if (hv30 is not None and series) else None
 
-    atm_iv = expiry_used = dte = None
+    atm_iv = expiry_used = dte = chain_error = None
     try:
         with quote_ctx() as ctx:
             ret, snap = ctx.get_market_snapshot([symbol])
@@ -106,9 +107,12 @@ def vol_regime(
                     spot = to_float(rows[0].get("last_price"))
             if spot and spot > 0:
                 atm_iv, expiry_used, dte = _atm_iv(ctx, symbol, spot, target_dte)
-    except Exception:
-        # OpenD down or the name has no chain: the HV half still stands.
-        pass
+            else:
+                chain_error = f"no spot for {symbol}"
+    except Exception as exc:
+        # The HV half still stands, but the hole must be visible: a silent null
+        # here renders as an em dash and reads as "this name has no options".
+        chain_error = f"{type(exc).__name__}: {exc}"
 
     iv_hv = (atm_iv / hv30) if (atm_iv is not None and hv30 and hv30 > 0) else None
 
@@ -136,9 +140,54 @@ def vol_regime(
         "expiryUsed": expiry_used,
         "dte": dte,
         "ivHv30": round(iv_hv, 3) if iv_hv is not None else None,
+        "chainError": chain_error,
         "label": label,
         "sampleBars": len(series),
     }
+
+
+def _expected_move_band(
+    ctx, chain_rows: list[dict], spot: float, dte: int
+) -> tuple[float, float] | None:
+    """Quote a handful of near-the-money strikes to read this expiry's ATM IV,
+    then return the 1-SD bounds. Two-stage because the band decides which
+    strikes are worth quoting, and a fixed ±% window misses it on a high-IV
+    name at longer DTE."""
+    if dte <= 0:
+        return None
+    lo, hi = spot * (1 - WHEEL_ATM_SAMPLE), spot * (1 + WHEEL_ATM_SAMPLE)
+    sample = [r for r in chain_rows if lo <= r["strike_price"] <= hi]
+    if not sample:
+        return None
+
+    snaps = snapshot_by_code(ctx, [r["code"] for r in sample])
+    legs = []
+    for r in sample:
+        iv_pct = to_float(snaps.get(r["code"], {}).get("option_implied_volatility"))
+        if iv_pct is not None and iv_pct > 0:
+            legs.append({"strike": r["strike_price"], "iv": iv_pct / 100.0})
+
+    atm = nearest(legs, "strike", spot)
+    if not atm:
+        return None
+    move = spot * atm["iv"] * math.sqrt(dte / 365.0)
+    return spot - move, spot + move
+
+
+def _strikes_past_band(chain_rows: list[dict], band: tuple[float, float]) -> list[dict]:
+    """Puts below the lower bound and calls above the upper, nearest edge first."""
+    lower, upper = band
+    puts = sorted(
+        (r for r in chain_rows
+         if str(r.get("option_type", "")).upper() == "PUT" and r["strike_price"] < lower),
+        key=lambda r: -r["strike_price"],
+    )
+    calls = sorted(
+        (r for r in chain_rows
+         if str(r.get("option_type", "")).upper() == "CALL" and r["strike_price"] > upper),
+        key=lambda r: r["strike_price"],
+    )
+    return puts[:WHEEL_ROWS_PER_SIDE] + calls[:WHEEL_ROWS_PER_SIDE]
 
 
 def _leg_rows(chain_rows: list[dict], snaps: dict[str, dict], side: str) -> list[dict]:
@@ -209,36 +258,41 @@ def wheel_chain(
         if not picked:
             raise HTTPException(status_code=502, detail=f"no future expiry for {symbol}")
 
-        lo, hi = spot * (1 - WHEEL_STRIKE_WINDOW), spot * (1 + WHEEL_STRIKE_WINDOW)
         expiries: list[dict] = []
         for expiry_iso, expiry_date in picked:
+            dte = (expiry_date - today).days
             ret, chain = ctx.get_option_chain(
                 code=symbol, start=expiry_iso, end=expiry_iso, option_type=OptionType.ALL,
             )
             if ret != RET_OK:
                 continue
             chain_rows = normalize(chain) if chain is not None else []
-            if not isinstance(chain_rows, list):
+            if not isinstance(chain_rows, list) or not chain_rows:
                 continue
             chain_rows = [r for r in chain_rows
                           if isinstance(r.get("strike_price"), (int, float))
-                          and lo <= r["strike_price"] <= hi]
+                          and isinstance(r.get("code"), str)]
             if not chain_rows:
                 continue
 
-            codes = [r["code"] for r in chain_rows if isinstance(r.get("code"), str)]
             try:
-                snaps = snapshot_by_code(ctx, codes)
+                band = _expected_move_band(ctx, chain_rows, spot, dte)
+                if band is None:
+                    continue
+                wanted = _strikes_past_band(chain_rows, band)
+                if not wanted:
+                    continue
+                snaps = snapshot_by_code(ctx, [r["code"] for r in wanted])
             except RuntimeError as exc:
                 raise HTTPException(status_code=502, detail=str(exc))
 
-            puts = [r for r in _leg_rows(chain_rows, snaps, "PUT") if r["strike"] <= spot]
-            calls = [r for r in _leg_rows(chain_rows, snaps, "CALL") if r["strike"] >= spot]
+            puts = _leg_rows(wanted, snaps, "PUT")
+            calls = _leg_rows(wanted, snaps, "CALL")
             if not puts and not calls:
                 continue
             expiries.append({
                 "expiry": expiry_iso,
-                "dte": (expiry_date - today).days,
+                "dte": dte,
                 "puts": puts,
                 "calls": calls,
             })

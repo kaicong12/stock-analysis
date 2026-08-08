@@ -15,7 +15,7 @@ cd python_backend && ./run.sh   # FastAPI sidecar (from ~/.moomoo-venv)
 pnpm dev                        # Next app -> localhost:3000
 ```
 
-Tests: `pnpm test` (vitest, wheel logic) and `cd python_backend && pytest` (indicator math).
+Tests: `pnpm test` (vitest, wheel logic) and `cd python_backend && pytest` (indicator math; needs `pip install -r requirements-dev.txt`). Both run on every push and PR via `.github/workflows/tests.yml`, alongside `tsc --noEmit` and `eslint`.
 
 ### Environment
 
@@ -50,7 +50,7 @@ Eight panels run in parallel, each one LLM call against a focused prompt.
 | Panel | Source | Reads |
 |---|---|---|
 | **Fundamentals** | yfinance | Valuation, growth, margins, balance sheet, analyst targets, earnings + ex-div dates. The quality filter — and it matters more here than to a premium seller, since assignment means actually owning the company. |
-| **Wheel Entry** | moomoo chain + yfinance | The acquisition zone, the vol regime, and per-strike tables for both legs. See below. |
+| **Wheel Entry** | moomoo chain + yfinance | The expected move per expiry and the strikes beyond it, plus the acquisition zone and vol regime. No LLM call. See below. |
 | **Technical** | moomoo `get_technical_unusual` + computed indicators | Anomaly *events* (K-line patterns, indicator crosses) plus standing *state*: RSI, MACD, Bollinger %B, SMA distances, ADX/±DI, a `regime` label, and `rsiDivergence`. The anomaly feed often reads 无异常 while the chart is plainly extended; the snapshot fills that gap. |
 | **Capital** | moomoo `get_financial_unusual` | Capital distribution, broker flow, net in/outflow, short selling. |
 | **News Flow** | moomoo news + Morningstar + peer graph | Headlines with URLs, Morningstar fair value / moat / bull-bear, and a sector peer read-through. |
@@ -66,13 +66,13 @@ Three deterministic pieces, computed before any LLM sees them.
 
 **Vol regime** (`/vol/regime`) — HV30 with its own trailing-1-year percentile, plus ATM IV and IV/HV, labelled `rich` / `fair` / `thin`. This is a **proxy for IV Rank, not IV Rank**: no available source carries historical implied vol, so the percentile ranks *realized* vol. Everything that surfaces it says so. Thin premium is a downgrade, never a veto — a wheeler who wants the shares is simply paid less to wait.
 
-**Strike tables** (`/options/wheel-chain` + `src/lib/wheel/score.ts`) — per-strike delta, bid/ask/mid, OI, IV and spread across expiries near 21/30/45 DTE, scored with:
+**Strike tables** (`/options/wheel-chain` + `src/lib/wheel/score.ts`) — expiries near 21/30/45 DTE, each showing the 1-SD expected move and **only the strikes beyond it**, nearest the band edge first, capped at 8. The expected move *is* the filter: it's computed per expiry from that expiry's own ATM IV, since vol is DTE-specific. Each row carries delta, bid, mid, zone position, whether it clears support/resistance, and:
 
-- **annualized yield %** = `mid/strike × 365/dte` — size-independent, so it says nothing about position size
-- **zone position**, **clears expected move**, **clears support/resistance**, **liquidity**
-- **`↓ safest`** (furthest out that still pays) and **`$ richest`** (best yield that isn't a rich strike)
+- **annualized yield %** = `mid/basis × 365/dte`, where basis is the strike on the put leg (cash secured) and spot on the call leg (shares already owned) — size-independent either way, so it says nothing about position size
 
-There's deliberately **no composite score**: yield and acquisition price pull in opposite directions — the best-paying strike is the nearest-the-money one, which is the worst price to own at. Showing the flags side by side keeps that tradeoff visible. Expected move is computed per expiry from that expiry's own ATM IV, since vol is DTE-specific.
+Liquidity is **not** a gate: a thin far-OTM strike is still a legitimate entry, so OI and spread aren't filtered on. An expiry with earnings inside its window is dropped outright, in code. There's deliberately **no composite score** and no "best strike" mark — further out is safer and pays less, and that tradeoff is the read.
+
+This panel makes **no LLM call**. It's arithmetic from IV to band to the strikes beyond it; the verdict synth reads the same table.
 
 ## How the verdict is reasoned
 
@@ -83,8 +83,8 @@ One LLM call reads all eight panels; `src/lib/gemini/synth.ts` enforces a strict
 3. **Falling-knife guard** — softened for this strategy. A **severe** breakdown (below the 200d plus a gap or volume blowout) forbids a new put: that's thesis damage, not a discount. A **mild** one warns and allows, with the strike required below the zone floor — an investor who wants the shares is partly buying the dip. A breakout blocks the *call* leg only.
 4. **Regime gate** — an oscillator extreme is momentum, not a reversal. Oversold inside a downtrend (ADX ≥ 20) is continuation, not a bottom; only a `range` regime mean-reverts on its own, and `rsiDivergence` is what upgrades an extreme into a real turn.
 5. **Vol regime** — a bonus that moves confidence, never a gate.
-6. **Strike placement** — the conservative edge is a short put below the zone floor, the expected-move lower bound, *and* support. When `↓ safest` and `$ richest` differ, the rationale must name the tension and pick one with a reason.
-7. **Earnings** — a mandatory cite on every verdict, and any expiry with earnings inside its window is disqualified. Ex-div inside the window flags early-assignment risk on short calls.
+6. **Strike placement** — every row it sees already clears the expected move; the conservative edge is one that *also* sits below the zone floor and support. Further out is safer and pays less, and the rationale must pick a side of that with a reason.
+7. **Earnings** — a mandatory cite on every verdict. Expiries with earnings inside the window never reach the model: `score.ts` drops them.  Ex-div inside the window flags early-assignment risk on short calls.
 8. **Rationale must quote numbers** — specific figures from the panels, at least one fundamentals reference, and any guard that fired named with its values.
 
 Each sleeve carries its **own confidence on its own clock**: stock is the multi-quarter thesis, wheel is "is this price a good entry". A 75% long-term hold at a 45% entry is the normal split between a good company and a good price — not disagreement, and never averaged.
