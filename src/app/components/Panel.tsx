@@ -20,7 +20,7 @@ import { relTime } from "./format";
 export const PANEL_LABELS: Record<keyof Verdict["panels"], string> = {
   capital: "Capital Anomaly",
   technical: "Technical Anomaly",
-  derivatives: "Derivatives Breakdown",
+  wheel: "Wheel Entry",
   news: "News Flow",
   digest: "Stock Digest",
   sentiment: "Community Sentiment",

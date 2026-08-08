@@ -9,8 +9,8 @@ import type {
   PriceAction,
   SnapshotResult,
   TechnicalIndicators,
-  VolSummary,
 } from "../types";
+import type { VolRegime, WheelChain } from "../wheel/types";
 
 interface RawAnomalyResponse {
   method: string;
@@ -89,62 +89,6 @@ export async function getFundamentals(symbol: string): Promise<FundamentalsResul
   return { symbol: r.symbol, yfTicker: r.yfTicker, data: r.data };
 }
 
-interface RawVolSummaryResponse {
-  symbol: string;
-  yfTicker: string;
-  spot: number;
-  expiry_used: string;
-  dte: number;
-  atm_iv: number | null;
-  atm_iv_call: number | null;
-  atm_iv_put: number | null;
-  atm_strike_call: number | null;
-  atm_strike_put: number | null;
-  hv_30: number | null;
-  hv_60: number | null;
-  iv_hv_ratio: number | null;
-  skew_25d: number | null;
-  skew_25d_call_strike: number | null;
-  skew_25d_put_strike: number | null;
-  hv_sample_size: number;
-}
-
-// Structured ATM IV + HV30 + 25Δ skew for a single ticker. The derivatives
-// panel feeds these in alongside the anomaly text so the model cites hard
-// numbers rather than inferring them from prose. Returns null when the
-// sidecar fails — derivatives panel still runs on the anomaly text alone.
-export async function getVolSummary(
-  symbol: string,
-  targetDte = 30,
-): Promise<VolSummary | null> {
-  try {
-    const r = await callSidecar<RawVolSummaryResponse>("/options/vol-summary", {
-      symbol,
-      target_dte: String(targetDte),
-    });
-    return {
-      symbol: r.symbol,
-      spot: r.spot,
-      expiryUsed: r.expiry_used,
-      dte: r.dte,
-      atmIv: r.atm_iv,
-      atmIvCall: r.atm_iv_call,
-      atmIvPut: r.atm_iv_put,
-      atmStrikeCall: r.atm_strike_call,
-      atmStrikePut: r.atm_strike_put,
-      hv30: r.hv_30,
-      hv60: r.hv_60,
-      ivHvRatio: r.iv_hv_ratio,
-      skew25d: r.skew_25d,
-      skew25dCallStrike: r.skew_25d_call_strike,
-      skew25dPutStrike: r.skew_25d_put_strike,
-      hvSampleSize: r.hv_sample_size,
-    };
-  } catch {
-    return null;
-  }
-}
-
 // Deterministic price-action breakdown/breakout signal (yfinance daily OHLCV).
 // Feeds the verdict's falling-knife guard. Returns null on any sidecar failure —
 // the guard then no-ops (a missing signal must never block a normal verdict).
@@ -166,6 +110,38 @@ export async function getPriceAction(symbol: string): Promise<PriceAction | null
 export async function getTechnicalIndicators(symbol: string): Promise<TechnicalIndicators | null> {
   try {
     return await callSidecar<TechnicalIndicators>("/technical/indicators", { symbol });
+  } catch {
+    return null;
+  }
+}
+
+// A PROXY for IV Rank — no source carries historical implied vol, so this ranks
+// realized vol. Null on failure: the pane hides the regime block.
+export async function getVolRegime(
+  symbol: string,
+  targetDte = 30,
+): Promise<VolRegime | null> {
+  try {
+    return await callSidecar<VolRegime>("/vol/regime", {
+      symbol,
+      target_dte: String(targetDte),
+    });
+  } catch {
+    return null;
+  }
+}
+
+// Null on failure — the pane still renders the zone and regime, which is most of
+// the "what price" answer without live quotes.
+export async function getWheelChain(
+  symbol: string,
+  targetDtes?: number[],
+): Promise<WheelChain | null> {
+  try {
+    return await callSidecar<WheelChain>("/options/wheel-chain", {
+      symbol,
+      ...(targetDtes?.length ? { target_dtes: targetDtes.join(",") } : {}),
+    });
   } catch {
     return null;
   }

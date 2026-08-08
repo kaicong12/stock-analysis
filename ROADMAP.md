@@ -2,17 +2,20 @@
 
 ### Upcoming
 
-1. **Tighten anomaly lookback windows (drop already-priced-in events)**
-   - ~~Insider Flow: reduce default `lookbackDays` 90 → 60~~ **Done (2026-06-27): set to 45** (`src/lib/massive/insider.ts:156`) to drop stale Form 4 trades the market has already absorbed
-   - Capital Anomaly: already defaults to 30 days (`src/lib/moomoo/sidecar.ts:65`) — keep at 30. If stale dates still appear in the panel, investigate the moomoo `get_financial_unusual` output (anomaly events dated outside the window / report-text dates), NOT the lookback parameter
-   - Optionally expose both windows as parameters later for per-run tuning
+1. **Verify the wheel data against a live OpenD session** — the chain, delta, bid/ask, OI, and the vol-regime percentile have never run against real quotes. Check per-strike `mid` and `annYield` against the broker, and confirm `/vol/regime` returns a sane percentile on a name with a full year of bars.
+2. **Consider Morningstar fair value as a fourth acquisition-zone anchor** — `getMorningstar` already returns `fairValue`, and it's arguably a better "worth owning at" anchor than analyst target-low. Would need a rule for when the two disagree materially.
+3. **Tighten anomaly lookback windows** — insider flow is at 45 days (`src/lib/massive/insider.ts`), capital anomaly at 30 (`src/lib/moomoo/sidecar.ts`). If stale dates still appear in the capital panel, investigate the moomoo `get_financial_unusual` output rather than the lookback parameter.
 
 ### Learning / research
 
-1. **Understand MACD + the common "good-entry" indicator stack**
-   - The app already computes these per ticker in `TechnicalIndicators` (`src/lib/types.ts`): `macd` (MACD line = EMA12 − EMA26), `macdSignal` (9-EMA of the MACD line), `macdHist` (macd − signal). Learn what each actually means before leaning on them in a verdict
-   - MACD line significance: what the EMA12 − EMA26 spread represents (short-term vs longer-term momentum), why it oscillates around zero, and what "above/below the zero line" says about the prevailing trend
-   - What technical traders read for general direction: the **MACD line vs signal-line crossover** (bullish when MACD crosses above signal, bearish below), the **histogram** as the early tell (momentum fading before the cross), and **zero-line crosses** as trend-regime confirmation. Note MACD is lagging — it confirms, it doesn't lead
-   - Other common entry-timing indicators to study alongside it (most already in `TechnicalIndicators`): **RSI(14)** overbought/oversold + divergence, **Bollinger %B** (band position / squeeze), **ADX + ±DI** (is there a trend worth trading or just chop), moving-average stack (20/50/200 SMA alignment), and volume confirmation
-   - Goal: a clear mental model of "is now a good entry" = trend direction (MACD zero-line + MA stack + ADX) × momentum timing (MACD cross/histogram + RSI) × confirmation (volume, divergence). Then sanity-check that the verdict/synth weighting of these matches the textbook reading
-   - Whats SMA 200? Whats the technical significance
+1. **The indicator stack behind "is now a good entry"**
+   - Already computed per ticker in `TechnicalIndicators`: `macd` (EMA12 − EMA26), `macdSignal` (9-EMA of it), `macdHist` (the difference).
+   - MACD: what the EMA spread represents, why it oscillates around zero, what above/below the zero line says about trend. The **line/signal crossover** is the entry tell, the **histogram** the earlier one (momentum fading before the cross), and **zero-line crosses** confirm the regime. It lags — it confirms, it doesn't lead.
+   - Alongside it: **RSI(14)** extremes and divergence, **Bollinger %B** (band position, squeeze), **ADX + ±DI** (is there a trend worth trading or just chop), the 20/50/200 SMA stack, and volume confirmation.
+   - Goal: a mental model of entry = trend direction (MACD zero-line + MA stack + ADX) × timing (MACD cross/histogram + RSI) × confirmation (volume, divergence), then sanity-check that the synth's weighting matches the textbook reading.
+   - **SMA200** specifically: why it's the conventional long-term trend line, and why it earns a place as an acquisition-zone anchor.
+
+2. **Wheel mechanics worth internalizing**
+   - Why delta ≈ assignment probability, and where that approximation breaks down.
+   - Assignment timing on American-style options: early exercise is rare except into ex-dividend, which is why the ex-div guard applies only to short calls.
+   - What annualized yield does and doesn't tell you — it assumes you can repeat the trade, which a wheel that gets assigned cannot.
