@@ -23,8 +23,7 @@ In `.env.local` — see `src/lib/env.ts`:
 
 | Var | Purpose |
 |---|---|
-| `OPENROUTER_API_KEY` | LLM provider. `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite-preview` |
-| `GEMINI_API_KEY` | Web-grounded surfaces (Stock Digest, Macro briefing) |
+| `GEMINI_API_KEY` | **Required** — the sole LLM provider (Google AI Studio). `GEMINI_STRUCTURED_MODEL` (panels + synth verdict) defaults to `gemini-2.5-flash-lite`; `GEMINI_GROUNDED_MODEL` (Stock Digest, Macro briefing) defaults to `gemini-2.5-flash` |
 | `MASSIVE_API_KEY` | SEC Form 4 insider data; degrades to "no activity" when unset |
 | `PYBACKEND_URL` | Sidecar, default `http://localhost:8765` |
 

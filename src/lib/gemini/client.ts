@@ -1,13 +1,19 @@
-// OpenRouter client. OpenRouter exposes an OpenAI-compatible /chat/completions
-// endpoint, so we hit it with raw fetch — no need for the openai SDK as a dep.
+// Structured-JSON LLM client. Calls the Google Gemini API directly (Google AI
+// Studio key) via @google/genai — the same SDK the web-grounded surfaces use.
 //
-// We force JSON output via response_format=json_object and inject the JSON schema
-// into the system message as documentation. Strict schema enforcement varies by
-// model on OpenRouter (especially on :free / flash-lite tiers), so we rely on
-// application-side parsing + retries to isolate bad outputs: cheap models
-// occasionally prepend a stray char/prose (e.g. `H{ "direction": ... }`) or
-// return a transient 429/5xx. extractJson() salvages the former; the retry loop
-// covers the rest.
+// We force JSON output via responseMimeType="application/json" and inject the
+// JSON schema into the system instruction as documentation. We deliberately do
+// NOT pass a strict Gemini responseSchema: the panel/synth schemas use JSON
+// Schema features (mixed type arrays like ["integer","null"], minimum/maximum)
+// that Gemini's OpenAPI-subset responseSchema does not accept. Keeping the
+// schema-as-docs approach lets the existing schemas ride unchanged.
+//
+// This path is NON-grounded (no googleSearch tool) — it reasons only over the
+// data in the prompt. Cheap/flash-lite tiers occasionally prepend a stray
+// char/prose (e.g. `H{ "direction": ... }`) or hit a transient 429/5xx /
+// overload, so we rely on application-side resilience: extractJson() salvages
+// malformed-but-recoverable output, and the retry loop covers the rest.
+import { GoogleGenAI } from "@google/genai";
 import { env } from "../env";
 
 export interface GenJsonOptions {
@@ -20,18 +26,13 @@ export interface GenJsonOptions {
   attempts?: number;
 }
 
-interface ChatResponse {
-  choices?: { message?: { content?: string } }[];
-  error?: { message?: string; code?: number };
-}
-
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_ATTEMPTS = 3;
 
-// Error carrying whether the failure is worth retrying. Auth/quota-config (401/
-// 403) and malformed requests (400) are NOT retryable — they won't fix
-// themselves. Rate limits (429), provider 5xx, timeouts, empty content, and
-// unparseable JSON ARE retryable.
+// Error carrying whether the failure is worth retrying. Auth/quota-config and
+// malformed requests are NOT retryable — they won't fix themselves. Rate limits
+// (429), server overload (5xx), timeouts, empty content, and unparseable JSON
+// ARE retryable.
 class GenJsonError extends Error {
   retryable: boolean;
   constructor(message: string, retryable: boolean) {
@@ -55,6 +56,20 @@ function extractJson(s: string): string {
   return first >= 0 && last > first ? stripped.slice(first, last + 1) : stripped;
 }
 
+// Heuristic for transient Gemini/SDK failures worth retrying: rate limits (429),
+// server overload (5xx), and the SDK's UNAVAILABLE / RESOURCE_EXHAUSTED states.
+// Unknown errors are treated as non-retryable so auth/bad-request failures fail
+// fast instead of burning attempts.
+function isTransientApiError(e: unknown): boolean {
+  const err = e as { status?: number; code?: number; message?: string };
+  const status = err.status ?? err.code;
+  if (typeof status === "number" && (status === 429 || status >= 500)) return true;
+  const msg = (err.message ?? "").toLowerCase();
+  return /\b(429|5\d\d)\b|too many requests|rate.?limit|overloaded|unavailable|resource.?exhausted|internal error/.test(
+    msg,
+  );
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function requestOnce<T>(sys: string, opts: GenJsonOptions): Promise<T> {
@@ -63,60 +78,45 @@ async function requestOnce<T>(sys: string, opts: GenJsonOptions): Promise<T> {
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 
   try {
-    const res = await fetch(`${env.openrouterBaseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.openrouterApiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": env.openrouterAppUrl,
-        "X-Title": env.openrouterAppTitle,
-      },
-      body: JSON.stringify({
-        model: env.openrouterModel,
+    const ai = new GoogleGenAI({ apiKey: env.geminiApiKey });
+    const response = await ai.models.generateContent({
+      model: env.geminiStructuredModel,
+      contents: [{ role: "user", parts: [{ text: opts.prompt }] }],
+      config: {
+        systemInstruction: sys,
         temperature: opts.temperature ?? 0.3,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: opts.prompt },
-        ],
-      }),
-      signal: ctrl.signal,
+        responseMimeType: "application/json",
+        abortSignal: ctrl.signal,
+      },
     });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      const retryable = res.status === 429 || res.status >= 500;
-      throw new GenJsonError(`openrouter ${res.status}: ${text.slice(0, 400)}`, retryable);
-    }
-
-    const j = (await res.json()) as ChatResponse;
-    if (j.error) {
-      const retryable = j.error.code === 429 || (j.error.code ?? 0) >= 500;
-      throw new GenJsonError(`openrouter: ${j.error.message ?? "unknown error"}`, retryable);
-    }
-    const content = j.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      throw new GenJsonError("openrouter returned empty content", true);
+    const text =
+      response.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    if (!text.trim()) {
+      throw new GenJsonError("gemini returned empty content", true);
     }
     try {
-      return JSON.parse(extractJson(content)) as T;
+      return JSON.parse(extractJson(text)) as T;
     } catch {
-      throw new GenJsonError(
-        `openrouter returned non-JSON content: ${content.slice(0, 200)}`,
-        true,
-      );
+      throw new GenJsonError(`gemini returned non-JSON content: ${text.slice(0, 200)}`, true);
     }
   } catch (e) {
+    if (e instanceof GenJsonError) throw e;
     if ((e as { name?: string }).name === "AbortError") {
-      throw new GenJsonError(`openrouter timeout after ${timeoutMs / 1000}s`, true);
+      throw new GenJsonError(`gemini timeout after ${timeoutMs / 1000}s`, true);
     }
-    throw e;
+    throw new GenJsonError(
+      `gemini: ${(e as { message?: string }).message ?? "unknown error"}`,
+      isTransientApiError(e),
+    );
   } finally {
     clearTimeout(timer);
   }
 }
 
 export async function genJson<T>(opts: GenJsonOptions): Promise<T> {
+  if (!env.geminiApiKey) throw new Error("GEMINI_API_KEY is not configured");
+
   const schemaText = JSON.stringify(opts.schema, null, 2);
   const sys = `${opts.systemInstruction}
 

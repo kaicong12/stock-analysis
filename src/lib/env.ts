@@ -5,18 +5,15 @@ function required(key: string): string {
 }
 
 export const env = {
-  openrouterApiKey: required("OPENROUTER_API_KEY"),
-  openrouterModel: process.env.OPENROUTER_MODEL ?? "google/gemini-3.1-flash-lite-preview",
-  openrouterBaseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
-  // Gemini direct API — free-tier key from AI Studio works (15 RPM / 1500 RPD).
-  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
-  // Model for web-grounded surfaces (Stock Digest panel + Macro briefing).
-  // These browse live via Google Search and want a more capable model than the
-  // cheap OpenRouter structured-panel path (openrouterModel).
+  // Google AI Studio key — the sole LLM provider, powering both the structured
+  // and the grounded path. Free tier works (15 RPM / 1500 RPD).
+  geminiApiKey: required("GEMINI_API_KEY"),
+  // Structured, non-grounded path (panels + synth verdict). Reasons only over
+  // data already in the prompt, so it rides the cheap "lite" model.
+  geminiStructuredModel: process.env.GEMINI_STRUCTURED_MODEL ?? "gemini-2.5-flash-lite",
+  // Web-grounded path (Stock Digest + Macro). Browses via Google Search and
+  // wants the more capable model.
   geminiGroundedModel: process.env.GEMINI_GROUNDED_MODEL ?? "gemini-2.5-flash",
-  // Optional referer headers OpenRouter uses for free-tier accounting / dashboard attribution.
-  openrouterAppUrl: process.env.OPENROUTER_APP_URL ?? "http://localhost:3000",
-  openrouterAppTitle: process.env.OPENROUTER_APP_TITLE ?? "Alpha Insights",
   pyBackendUrl: process.env.PYBACKEND_URL ?? "http://localhost:8765",
   // Massive (ex-Polygon.io) — SEC Form 4 insider transactions. Optional at module
   // load; the insider client degrades to an empty panel when the key is absent.
