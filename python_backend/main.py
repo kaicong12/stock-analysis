@@ -7,7 +7,9 @@ levels.py, caching in store.py + bars.py.
 
 from fastapi import FastAPI
 
-from routers import anomaly, fundamentals, health, market, research, technical, volatility
+from routers import (
+    anomaly, fundamentals, health, market, research, technical, volatility, wheel,
+)
 
 app = FastAPI(title="moomoo-sidecar")
 
@@ -18,3 +20,4 @@ app.include_router(fundamentals.router)
 app.include_router(volatility.router)
 app.include_router(technical.router)
 app.include_router(research.router)
+app.include_router(wheel.router)

@@ -53,3 +53,5 @@ __pycache__/
 *$py.class
 .venv/
 venv/
+# playwright-mcp scratch output
+/.playwright-mcp/

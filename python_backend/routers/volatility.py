@@ -9,38 +9,13 @@ from bars import daily_closes
 from indicators import historical_vol
 from opend import quote_ctx
 from util import normalize, to_float, to_yf_ticker
+from vol_util import SNAPSHOT_CHUNK, nearest as _nearest, pick_expiry as _pick_expiry
 
 router = APIRouter()
 
-SNAPSHOT_CHUNK = 200
 # ±25% brackets the 25Δ wings on normal-IV names while keeping the snapshot
 # batch small.
 STRIKE_WINDOW = 0.25
-
-
-def _nearest(rows: list[dict], key: str, target: float) -> dict | None:
-    return min(rows, key=lambda r: abs(r[key] - target)) if rows else None
-
-
-def _pick_expiry(exp_rows: list[dict], today: dt.date, target_dte: int):
-    """Future expiry closest to target_dte."""
-    target_date = today + dt.timedelta(days=target_dte)
-    chosen = None
-    chosen_diff = None
-    for r in exp_rows:
-        s = r.get("strike_time")
-        if not isinstance(s, str):
-            continue
-        try:
-            d = dt.date.fromisoformat(s[:10])
-        except ValueError:
-            continue
-        if d < today:
-            continue
-        diff = abs((d - target_date).days)
-        if chosen_diff is None or diff < chosen_diff:
-            chosen, chosen_diff = (s[:10], d), diff
-    return chosen
 
 
 @router.get("/options/vol-summary")
