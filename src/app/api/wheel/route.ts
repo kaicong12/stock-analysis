@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 // Deterministic wheel read for one underlying — vol regime, acquisition zone,
 // and the scored strike tables. Pure data; the interpretation lives in the
-// WheelPane component and the wheel panel's prose.
+// StrikeDesk component and the verdict's wheel sleeve.
 export async function GET(req: Request) {
   const rawSymbol = new URL(req.url).searchParams.get("symbol")?.trim();
   if (!rawSymbol) {

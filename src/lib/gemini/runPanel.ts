@@ -2,8 +2,6 @@ import { collatePeerNews, getStockFeed } from "../moomoo/httpApi";
 import { getAnomaly, getFundamentals, getMorningstar, getPeers, getTechnicalIndicators } from "../moomoo/sidecar";
 import { getInsiderTransactions } from "../massive/insider";
 import { ticker as toTicker } from "../symbol";
-import { fetchWheelPlan } from "../wheel/plan";
-import { summarizeWheel } from "../wheel/summary";
 import type { PanelSummary } from "../types";
 import type { PanelKey } from "../types";
 import {
@@ -46,9 +44,6 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
         getTechnicalIndicators(symbol),
       ]);
       return { summary: await analyzeTechnical(data, ctx, indicators) };
-    }
-    case "wheel": {
-      return { summary: summarizeWheel(await fetchWheelPlan(ticker, symbol)) };
     }
     case "news": {
       // Self-signal = Morningstar research report; peer graph for read-through,

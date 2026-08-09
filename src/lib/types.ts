@@ -488,7 +488,6 @@ export interface Verdict {
   panels: {
     capital: PanelSummary;
     technical: PanelSummary;
-    wheel: PanelSummary;
     news: PanelSummary;
     digest: PanelSummary;
     sentiment: PanelSummary;
@@ -503,7 +502,6 @@ export const PANEL_KEYS: PanelKey[] = [
   "fundamentals",
   "capital",
   "technical",
-  "wheel",
   "sentiment",
   "digest",
   "news",

@@ -2,7 +2,7 @@
 
 A wheel-entry desk for one ticker at a time. You bring a company you already want to own; the app answers **is this a good price, and where do I sell the put.**
 
-Eight panels run in parallel — each one LLM call over a focused slice of data — and a final synth call turns them into a dual-sleeve verdict: a stock action and a wheel action. All deterministic math (indicators, levels, vol, the option chain) is computed by a Python sidecar and cited verbatim; the model never recomputes it.
+Seven panels run in parallel — each one LLM call over a focused slice of data — and a final synth call turns them into a dual-sleeve verdict: a stock action and a wheel action. The wheel read has no panel: it is fully deterministic, so the Strike Desk renders it directly and the synth call reads the same plan. All deterministic math (indicators, levels, vol, the option chain) is computed by a Python sidecar and cited verbatim; the model never recomputes it.
 
 **No broker integration**, deliberately — no account, NAV, cash, or position data, and it never asks for any. Both sleeves are **entry-or-pass on a fresh position**, and no output ever states a size. See `CLAUDE.md` for the trading profile.
 
@@ -37,12 +37,12 @@ Repo-root `.env` (also sourced by `scripts/dev.sh`). Definitions live in `src/li
 flowchart TD
     A["POST /api/prep<br/>snapshot + earnings pre-flight"] --> S0{"ticker recognized?"}
     S0 -- no --> R["404 TICKER_NOT_FOUND"]
-    S0 -- yes --> S2["8 × POST /api/panel/[name]<br/>(parallel, 7 LLM calls)"]
+    S0 -- yes --> S2["7 × POST /api/panel/[name]<br/>(parallel, 7 LLM calls)"]
     S2 --> S3["POST /api/verdict (1 LLM call)<br/>panels + priceAction + indicators + wheel plan + macro"]
     S3 --> OUT["Verdict: stock sleeve + wheel sleeve"]
 ```
 
-Every step renders the moment it resolves: `src/app/page.tsx` fans the eight panel requests out concurrently and dispatches each result as it lands, so panels fill in one by one rather than waiting on the slowest. Earnings inside the 45-day window pause the run before any LLM call and ask for confirmation.
+Every step renders the moment it resolves: `src/app/page.tsx` fans the seven panel requests out concurrently and dispatches each result as it lands, so panels fill in one by one rather than waiting on the slowest. Earnings inside the 45-day window pause the run before any LLM call and ask for confirmation.
 
 **Storage:** one SQLite file, `data/app.sqlite`, owned entirely by the sidecar (`store.py`). It caches yfinance daily bars so HV and price action don't refetch per request. Fully rebuildable — delete it and the sidecar repopulates.
 
@@ -51,7 +51,6 @@ Every step renders the moment it resolves: `src/app/page.tsx` fans the eight pan
 | Panel | Source | Reads |
 |---|---|---|
 | **Fundamentals** | yfinance via sidecar | Valuation, growth, margins, balance sheet, analyst targets, earnings + ex-div dates. Also supplies the earnings date the gate uses. |
-| **Wheel Entry** | OpenD chain + sidecar | Expected move per expiry, the strikes beyond it, the acquisition zone, the vol regime. **No LLM call** — see below. |
 | **Technical** | moomoo `get_technical_unusual` + computed indicators | Anomaly *events* (K-line patterns, indicator crosses) plus standing *state*: RSI, MACD, Bollinger %B, SMA distances, ADX/±DI, a `regime` label, `rsiDivergence`. The anomaly feed often reads 无异常 while the chart is plainly extended; the snapshot fills that gap. |
 | **Capital** | moomoo `get_financial_unusual` | Capital distribution, broker flow, net in/outflow, short selling. |
 | **News Flow** | Morningstar report (OpenD) + peer graph | Fair value, moat, bull/bear, analyst note — the self-signal. Peer headlines ride alongside as a separate sector read-through block, never mixed into the ticker's own signal. |
@@ -69,11 +68,15 @@ Three deterministic pieces, computed before any LLM sees them.
 
 **Strike tables** (`/options/wheel-chain` + `src/lib/wheel/score.ts`) — expiries near 21/30/45 DTE, each showing the 1-SD expected move and **only the strikes beyond it**, nearest the band edge first, capped at 8. The expected move *is* the filter, computed per expiry from that expiry's own ATM IV since vol is DTE-specific. Each row carries delta, bid, mid, zone position, whether it clears support/resistance, and **annualized yield %** = `mid/basis × 365/dte`, where basis is the strike on the put leg (cash secured) and spot on the call leg (shares already owned) — size-independent either way.
 
-Liquidity is **not** a gate: a thin far-OTM strike is still a legitimate entry, so OI and spread aren't filtered on. An expiry with earnings inside its window is dropped in code. There's deliberately **no composite score** and no "best strike" mark — further out is safer and pays less, and that tradeoff is the read.
+Each row also nets the credit off the strike: **basis** = `strike − mid` on the put leg (the price you actually own at if assigned), **net sale** = `strike + mid` on the call leg. The acquisition zone is worth judging against the basis, not the strike. With forward EPS available the basis is also expressed as a multiple (`P/E @ basis`).
+
+Liquidity is **not** a gate: a thin far-OTM strike is still a legitimate entry, so OI and spread aren't filtered on. An expiry with earnings inside its window is dropped in code; an FOMC inside the window is **marked, not dropped** (`src/lib/wheel/fomc.ts` reads the Fed's own calendar) — the Fed meets every ~6 weeks, so blocking on it would empty nearly every usable expiry. There's deliberately **no composite score** and no "best strike" mark — further out is safer and pays less, and that tradeoff is the read.
+
+**Strike Desk** (`src/app/components/StrikeDesk.tsx`) renders all of the above as one full-width section below the verdict: a 90-day event runway, then a price ladder drawing the acquisition zone, the 1-SD band, spot, support/resistance/SMA200 and every strike with its post-credit basis on a single axis, then the table. Expiries are tabs; the put and call legs share a toggle.
 
 ## The verdict
 
-One LLM call reads all eight panels; `src/lib/gemini/synth.ts` sets the reasoning order — acquisition price first, then the breakdown state, the regime read, vol as a bonus, strike placement, a mandatory earnings cite, and a rationale that has to quote actual numbers.
+One LLM call reads all seven panels plus the deterministic wheel plan; `src/lib/gemini/synth.ts` sets the reasoning order — acquisition price first, then the breakdown state, the regime read, vol as a bonus, strike placement, a mandatory earnings cite, and a rationale that has to quote actual numbers.
 
 Three of those are **also enforced in code**, so a model that argues around the prompt still gets overridden:
 

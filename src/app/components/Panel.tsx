@@ -8,7 +8,6 @@ import {
   Heart,
   Landmark,
   Newspaper,
-  RefreshCw,
   UserCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +32,6 @@ import { relTime } from "./format";
 export const PANEL_LABELS: Record<keyof Verdict["panels"], string> = {
   capital: "Capital Anomaly",
   technical: "Technical Anomaly",
-  wheel: "Wheel Entry",
   news: "News Flow",
   digest: "Stock Digest",
   sentiment: "Community Sentiment",
@@ -44,7 +42,6 @@ export const PANEL_LABELS: Record<keyof Verdict["panels"], string> = {
 export const PANEL_ICONS: Record<keyof Verdict["panels"], ReactNode> = {
   capital: <Banknote />,
   technical: <ChartLine />,
-  wheel: <RefreshCw />,
   news: <Newspaper />,
   digest: <FileText />,
   sentiment: <Heart />,
