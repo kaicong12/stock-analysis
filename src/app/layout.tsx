@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Work_Sans } from "next/font/google";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 const inter = Inter({
@@ -25,7 +26,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${inter.variable} ${workSans.variable}`}>
-      <body>{children}</body>
+      <body>
+        <TooltipProvider delayDuration={150}>{children}</TooltipProvider>
+      </body>
     </html>
   );
 }

@@ -1,16 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import styles from "../page.module.css";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { fmtNum } from "./format";
-import { IconPlay } from "./icons";
-import type {
-  ScoredExpiry,
-  ScoredStrike,
-  VolRegime,
-  WheelPlan,
-  ZonePosition,
-} from "../../lib/wheel/types";
+import { Play } from "lucide-react";
+import type { ScoredExpiry, ScoredStrike, VolRegime, WheelPlan, ZonePosition } from "../../lib/wheel/types";
 
 const pct = (x: number | null, d = 1): string => (x === null ? "—" : `${(x * 100).toFixed(d)}%`);
 
@@ -22,59 +18,72 @@ const ZONE_LABEL: Record<ZonePosition, string> = {
 };
 
 function zoneCls(z: ZonePosition): string {
-  if (z === "good") return styles.actionBullish;
-  if (z === "rich") return styles.actionBearish;
+  if (z === "good") return "text-bullish";
+  if (z === "rich") return "text-bearish";
   return "";
 }
 
+const ROW = "flex justify-between gap-3 text-xs leading-normal text-on-surface";
+const LABEL = "text-on-surface-variant";
+const SUB = "text-[11px] text-on-surface-variant";
+const NOTE = "text-[11px] text-on-surface-variant";
+const CELL = "px-0 py-[3px] pr-1.5 text-right align-middle first:text-left";
+
 function RegimeBlock({ r }: { r: VolRegime | null }) {
-  if (!r) return <div className={styles.whatIfNote}>Vol regime unavailable.</div>;
+  if (!r) return <div className={NOTE}>Vol regime unavailable.</div>;
   return (
     <>
-      <div className={styles.whatIfRow}>
-        <span className={styles.whatIfLabel}>Vol regime</span>
-        <span className={"tabular-nums " + (r.label === "rich" ? styles.actionBullish : "")}>
-          {r.label}
-        </span>
+      <div className={ROW}>
+        <span className={LABEL}>Vol regime</span>
+        <span className={cn("tabular-nums", r.label === "rich" && "text-bullish")}>{r.label}</span>
       </div>
-      <div className={styles.whatIfRow}>
-        <span className={styles.whatIfLabel}>HV30 · percentile</span>
+      <div className={ROW}>
+        <span className={LABEL}>HV30 · percentile</span>
         <span className="tabular-nums">
           {pct(r.hv30)} · {r.hv30Pct === null ? "—" : `${r.hv30Pct}th`}
           {r.hv30Low !== null && r.hv30High !== null ? ` (${pct(r.hv30Low)}–${pct(r.hv30High)})` : ""}
         </span>
       </div>
-      <div className={styles.whatIfRow}>
-        <span className={styles.whatIfLabel}>ATM IV · IV/HV</span>
+      <div className={ROW}>
+        <span className={LABEL}>ATM IV · IV/HV</span>
         <span className="tabular-nums">
           {pct(r.atmIv)} · {r.ivHv30 === null ? "—" : `${r.ivHv30.toFixed(2)}×`}
         </span>
       </div>
-      <div className={styles.whatIfSub}>
+      <div className={SUB}>
         Percentile ranks <em>realized</em> vol against its own year — a proxy for IV Rank, not IV Rank.
       </div>
-      {r.chainError && (
-        <div className={styles.wheelWarning}>Chain quotes unavailable — {r.chainError}</div>
-      )}
+      {r.chainError && <Callout>Chain quotes unavailable — {r.chainError}</Callout>}
     </>
+  );
+}
+
+function Callout({ blocked, children }: { blocked?: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "mt-1 rounded border-l-[3px] bg-surface-high p-2 text-xs leading-normal text-on-surface",
+        blocked ? "border-l-bearish" : "border-l-neutral",
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
 function ZoneBlock({ plan }: { plan: WheelPlan }) {
   const z = plan.zone;
-  if (!z) {
-    return <div className={styles.whatIfNote}>Acquisition zone unavailable — fewer than two anchors.</div>;
-  }
+  if (!z) return <div className={NOTE}>Acquisition zone unavailable — fewer than two anchors.</div>;
   const a = z.anchors;
   return (
     <>
-      <div className={styles.whatIfRow}>
-        <span className={styles.whatIfLabel}>Acquisition zone{z.partial ? " (partial)" : ""}</span>
+      <div className={ROW}>
+        <span className={LABEL}>Acquisition zone{z.partial ? " (partial)" : ""}</span>
         <span className="tabular-nums">
           {fmtNum(z.low)} – {fmtNum(z.high)}
         </span>
       </div>
-      <div className={styles.whatIfSub}>
+      <div className={SUB}>
         target-low {a.analystTargetLow === null ? "—" : fmtNum(a.analystTargetLow)} · SMA200{" "}
         {a.sma200 === null ? "—" : fmtNum(a.sma200)} · support {a.support === null ? "—" : fmtNum(a.support)}
       </div>
@@ -84,15 +93,19 @@ function ZoneBlock({ plan }: { plan: WheelPlan }) {
 
 function StrikeRow({ r }: { r: ScoredStrike }) {
   return (
-    <tr>
-      <td className="tabular-nums">{fmtNum(r.strike)}</td>
-      <td className="tabular-nums">{r.delta === null ? "—" : Math.abs(r.delta).toFixed(2)}</td>
-      <td className="tabular-nums">{fmtNum(r.bid)}</td>
-      <td className="tabular-nums">{fmtNum(r.mid)}</td>
-      <td className="tabular-nums">{r.annYield === null ? "—" : `${r.annYield}%`}</td>
-      <td className={zoneCls(r.zonePos)}>{ZONE_LABEL[r.zonePos]}</td>
-      <td>{r.clearsLevel === null ? "—" : r.clearsLevel ? "✓" : "·"}</td>
-    </tr>
+    <TableRow className="border-0 hover:bg-transparent">
+      <TableCell className={cn(CELL, "tabular-nums")}>{fmtNum(r.strike)}</TableCell>
+      <TableCell className={cn(CELL, "tabular-nums")}>
+        {r.delta === null ? "—" : Math.abs(r.delta).toFixed(2)}
+      </TableCell>
+      <TableCell className={cn(CELL, "tabular-nums")}>{fmtNum(r.bid)}</TableCell>
+      <TableCell className={cn(CELL, "tabular-nums")}>{fmtNum(r.mid)}</TableCell>
+      <TableCell className={cn(CELL, "tabular-nums")}>
+        {r.annYield === null ? "—" : `${r.annYield}%`}
+      </TableCell>
+      <TableCell className={cn(CELL, zoneCls(r.zonePos))}>{ZONE_LABEL[r.zonePos]}</TableCell>
+      <TableCell className={CELL}>{r.clearsLevel === null ? "—" : r.clearsLevel ? "✓" : "·"}</TableCell>
+    </TableRow>
   );
 }
 
@@ -114,59 +127,68 @@ const TIPS = {
   },
 } as const;
 
-function Th({ tip, end, children }: { tip: string; end?: boolean; children: React.ReactNode }) {
+function Hint({ tip, children }: { tip: string; children: React.ReactNode }) {
   return (
-    <th>
-      <span className={styles.tip + (end ? " " + styles.tipEnd : "")} data-tip={tip} tabIndex={0}>
-        {children}
-      </span>
-    </th>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0} className="cursor-help border-b border-dotted border-outline">
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{tip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function Th({ tip, children }: { tip: string; children: React.ReactNode }) {
+  return (
+    <TableHead className="h-auto px-0 py-[3px] pr-1.5 text-right text-[10px] font-medium tracking-[0.04em] uppercase text-on-surface-variant first:text-left">
+      <Hint tip={tip}>{children}</Hint>
+    </TableHead>
   );
 }
 
 function LegTable({ legs, side }: { legs: ScoredExpiry[]; side: "put" | "call" }) {
-  if (!legs.length) return <div className={styles.whatIfNote}>No quotable strikes.</div>;
+  if (!legs.length) return <div className={NOTE}>No quotable strikes.</div>;
   return (
     <>
       {legs.map((e) => (
-        <div key={e.expiry} className={styles.wheelExpiry}>
-          <div className={styles.wheelExpiryHead}>
+        <div key={e.expiry} className="mt-2">
+          <div className="flex flex-wrap items-baseline gap-2.5 text-[11px] text-on-surface">
             <span className="tabular-nums">
               {e.expiry} · {e.dte}d
             </span>
-            <span
-              className={styles.whatIfLabel + " " + styles.tip}
-              data-tip="The 1-SD expected move: spot × ATM IV × √(DTE/365). Roughly a 68% chance the price stays inside this band by expiry. Only strikes beyond it are listed below."
-              tabIndex={0}
-            >
-              ATM IV {e.atmIv === null ? "—" : `${(e.atmIv * 100).toFixed(1)}%`} · 1-SD{" "}
-              {e.emLower === null ? "—" : fmtNum(e.emLower)}–{e.emUpper === null ? "—" : fmtNum(e.emUpper)}
-            </span>
-            {e.exDivInWindow && <span className={styles.actionBearish}>ex-div in window</span>}
+            <Hint tip="The 1-SD expected move: spot × ATM IV × √(DTE/365). Roughly a 68% chance the price stays inside this band by expiry. Only strikes beyond it are listed below.">
+              <span className={LABEL}>
+                ATM IV {e.atmIv === null ? "—" : `${(e.atmIv * 100).toFixed(1)}%`} · 1-SD{" "}
+                {e.emLower === null ? "—" : fmtNum(e.emLower)}–{e.emUpper === null ? "—" : fmtNum(e.emUpper)}
+              </span>
+            </Hint>
+            {e.exDivInWindow && <span className="text-bearish">ex-div in window</span>}
           </div>
           {e.excluded ? (
-            <div className={styles.whatIfNote}>Skipped — {e.excluded}.</div>
+            <div className={NOTE}>Skipped — {e.excluded}.</div>
           ) : !e.rows.length ? (
-            <div className={styles.whatIfNote}>No strikes beyond the band.</div>
+            <div className={NOTE}>No strikes beyond the band.</div>
           ) : (
-            <table className={styles.wheelTable + " tabular-nums"}>
-              <thead>
-                <tr>
+            <Table className="mt-1 text-xs leading-normal tabular-nums">
+              <TableHeader>
+                <TableRow className="border-b border-outline-variant hover:bg-transparent">
                   <Th tip={TIPS[side].strike}>strike</Th>
                   <Th tip={TIPS.delta}>Δ≈</Th>
                   <Th tip={TIPS.bid}>bid</Th>
-                  <Th tip={TIPS.mid} end>mid</Th>
-                  <Th tip={TIPS[side].ann} end>ann%</Th>
-                  <Th tip={TIPS[side].zone} end>zone</Th>
-                  <Th tip={TIPS[side].level} end>{side === "put" ? "sup" : "res"}</Th>
-                </tr>
-              </thead>
-              <tbody>
+                  <Th tip={TIPS.mid}>mid</Th>
+                  <Th tip={TIPS[side].ann}>ann%</Th>
+                  <Th tip={TIPS[side].zone}>zone</Th>
+                  <Th tip={TIPS[side].level}>{side === "put" ? "sup" : "res"}</Th>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {e.rows.map((r) => (
                   <StrikeRow key={r.strike} r={r} />
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </div>
       ))}
@@ -199,45 +221,51 @@ export function WheelPane({ symbol, ticker }: { symbol: string; ticker: string }
   }, [symbol]);
 
   return (
-    <div className={styles.whatIf}>
-      <div className={styles.whatIfHeader}>
-        <IconPlay /> Wheel entry — {ticker}
+    <div className="mt-3 flex flex-col gap-2 rounded border border-outline-variant bg-surface-container p-3">
+      <div className="flex items-center gap-1.5 text-xs leading-normal font-semibold tracking-[0.04em] uppercase text-on-surface">
+        <Play className="size-3 fill-current" /> Wheel entry — {ticker}
       </div>
 
-      {state === "loading" && <div className={styles.whatIfNote}>Loading chain &amp; levels…</div>}
-      {state === "error" && <div className={styles.whatIfNote}>Wheel data unavailable.</div>}
+      {state === "loading" && <div className={NOTE}>Loading chain &amp; levels…</div>}
+      {state === "error" && <div className={NOTE}>Wheel data unavailable.</div>}
 
       {state === "ready" && plan && (
         <>
-          <div className={styles.whatIfRow}>
-            <span className={styles.whatIfLabel}>Spot</span>
+          <div className={ROW}>
+            <span className={LABEL}>Spot</span>
             <span className="tabular-nums">{plan.spot === null ? "—" : fmtNum(plan.spot)}</span>
           </div>
           <RegimeBlock r={plan.regime} />
           <ZoneBlock plan={plan} />
 
-          {plan.warning && (
-            <div className={plan.blocked ? styles.wheelBlocked : styles.wheelWarning}>{plan.warning}</div>
-          )}
+          {plan.warning && <Callout blocked={plan.blocked}>{plan.warning}</Callout>}
 
-          <div className={styles.wheelLegHead}>Sell cash-secured put — start the wheel</div>
+          <LegHead>Sell cash-secured put — start the wheel</LegHead>
           {plan.blocked ? (
-            <div className={styles.whatIfNote}>Blocked by the severe-breakdown guard.</div>
+            <div className={NOTE}>Blocked by the severe-breakdown guard.</div>
           ) : (
             <LegTable legs={plan.putLeg} side="put" />
           )}
 
-          <div className={styles.wheelLegHead}>
+          <LegHead>
             Sell covered call — <em>only if you hold 100+ shares</em>
-          </div>
+          </LegHead>
           <LegTable legs={plan.callLeg} side="call" />
 
-          <div className={styles.whatIfSub}>
+          <div className={SUB}>
             Only strikes beyond the 1-SD expected move are listed. Δ is approximate assignment
             probability. Sizing happens at your broker.
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function LegHead({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-2.5 border-t border-outline-variant pt-2 text-[11px] font-semibold tracking-[0.04em] uppercase text-on-surface">
+      {children}
     </div>
   );
 }
