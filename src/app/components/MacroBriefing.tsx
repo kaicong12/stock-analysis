@@ -11,7 +11,7 @@ interface Props {
 }
 
 // `!` on the heading/list rules: they have to outrank `.markdown h1` from
-// page.module.css, whose selector carries equal specificity.
+// Markdown.module.css, whose selector carries equal specificity.
 const PROSE =
   "text-[12.5px] leading-[1.6] text-on-surface-variant " +
   "[&>*:first-child]:mt-0! " +

@@ -74,7 +74,7 @@ if ! opend_reachable; then
 [opend] ERROR: moomoo OpenD is not reachable at ${OPEND_HOST}:${OPEND_PORT}.
 
 Without OpenD the python sidecar can't fetch any moomoo data, which means every
-panel call (capital, technical, derivatives, news, digest, sentiment) will fail.
+panel call (capital, technical, wheel, news, sentiment) will fail.
 
 Start OpenD before running this script:
   - macOS:   open -a "moomoo OpenD"   (or launch from Applications)

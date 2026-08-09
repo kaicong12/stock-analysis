@@ -420,9 +420,8 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
     temperature: 0.3,
   });
 
-  // DEBUG: what the model GENERATED (raw, before the deterministic falling-knife
-  // / IV-HV overrides below rewrite it). Compare against the MODEL INPUT log to
-  // see exactly what the LLM is responsible for producing.
+  // DEBUG: what the model GENERATED, before the deterministic overrides below
+  // rewrite it.
   if (process.env.SYNTH_DEBUG) {
     console.log(`\n[synth] ===== MODEL OUTPUT for ${input.ticker} (raw, pre-override) =====`);
     console.log(JSON.stringify(raw, null, 2));
