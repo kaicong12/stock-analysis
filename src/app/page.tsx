@@ -1,25 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
-import styles from "./page.module.css";
+import type { FormEvent } from "react";
 import type { PanelSummary, SnapshotResult, Verdict } from "../lib/types";
+import { EarningsGate, ErrorBanner } from "./components/Banners";
 import { Hero } from "./components/Hero";
 import { MacroBriefing } from "./components/MacroBriefing";
-import { Panel, PANEL_LABELS } from "./components/Panel";
+import { Panel, PANEL_ICONS, PANEL_LABELS } from "./components/Panel";
+import { HeroEmpty, MAIN, MAIN_INNER, PANEL_GRID, SHELL } from "./components/Shell";
 import { SkeletonBlock, Welcome } from "./components/Welcome";
 import { Topbar } from "./components/Topbar";
 import { VerdictCard } from "./components/VerdictCard";
-import {
-  IconCapital,
-  IconChart,
-  IconDoc,
-  IconFundamentals,
-  IconHeart,
-  IconInsider,
-  IconNews,
-  IconOptions,
-} from "./components/icons";
 
 type PanelKey = keyof Verdict["panels"];
 const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "wheel", "sentiment", "digest", "news", "insider"];
@@ -328,16 +319,16 @@ export default function Page() {
   const heroData = useMemo<Verdict | null>(() => state.verdict, [state.verdict]);
 
   return (
-    <div className={styles.shell}>
+    <div className={SHELL}>
       <Topbar
         ticker={state.tickerInput}
         setTicker={(v) => dispatch({ type: "set_input", v })}
         onSubmit={onSubmit}
         loading={state.status !== "idle" && state.status !== "done" && state.status !== "error" && state.status !== "earnings_gate"}
       />
-      <div className={styles.body}>
-        <main className={`${styles.main} scrollbar-slim`}>
-          <div className={styles.mainInner}>
+      <div className="grid min-h-0 grid-cols-1">
+        <main className={MAIN}>
+          <div className={MAIN_INNER}>
             {state.snapshot ? (
               <Hero data={{
                 ticker: state.ticker,
@@ -349,46 +340,26 @@ export default function Page() {
                 verdict: heroData, errors: state.errors,
               }} />
             ) : (
-              <div className={styles.heroEmpty}>
-                <h1 className="font-display">Ticker analysis</h1>
-                <p>Search a symbol above to synthesize capital flow, technicals, options activity, news, and community sentiment into a single dual-sleeve verdict.</p>
-              </div>
+              <HeroEmpty />
             )}
 
             {state.topError && (
-              <div className={styles.errorBanner}>
-                <strong>Request failed</strong>
+              <ErrorBanner title="Request failed">
                 <span>{state.topError}</span>
-              </div>
+              </ErrorBanner>
             )}
 
             {state.status === "prepping" && <SkeletonBlock />}
 
             {state.status === "earnings_gate" && (
-              <div className={styles.earningsGate}>
-                <div className={styles.earningsGateHead}>
-                  <span aria-hidden>⚠︎</span>
-                  <span>
-                    Earnings {state.earningsDaysAway === 0
-                      ? "today"
-                      : `in ${state.earningsDaysAway} day${state.earningsDaysAway === 1 ? "" : "s"}`}
-                    {state.nextEarningsDate ? ` (${state.nextEarningsDate})` : ""} for {state.ticker}
-                  </span>
-                </div>
-                <div className={styles.earningsGateBody}>
-                  This print lands inside the {EARNINGS_GATE_DAYS}-day expiry window. Per your conservative
-                  rule, a binary event in the window argues against opening new premium — so the AI panels
-                  haven&rsquo;t run yet. Continue the full analysis anyway?
-                </div>
-                <div className={styles.earningsGateActions}>
-                  <button type="button" className={styles.btnPrimary} onClick={continueFromGate}>
-                    Continue anyway
-                  </button>
-                  <button type="button" className={styles.btnGhost} onClick={cancelGate}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              <EarningsGate
+                ticker={state.ticker}
+                daysAway={state.earningsDaysAway}
+                date={state.nextEarningsDate}
+                windowDays={EARNINGS_GATE_DAYS}
+                onContinue={continueFromGate}
+                onCancel={cancelGate}
+              />
             )}
 
             {state.verdict && (
@@ -406,10 +377,9 @@ export default function Page() {
             )}
 
             {state.status === "verdict" && !state.verdict && (
-              <div className={styles.errorBanner} style={{ background: "var(--surface-container)" }}>
-                <strong>Synthesizing verdict…</strong>
+              <ErrorBanner title="Synthesizing verdict…" tone="info">
                 <span>Aggregating panels into the dual-sleeve recommendation.</span>
-              </div>
+              </ErrorBanner>
             )}
 
             {!state.snapshot && state.status === "idle" && <Welcome />}
@@ -419,14 +389,14 @@ export default function Page() {
             )}
 
             {state.snapshot && state.status !== "earnings_gate" && (
-              <div className={styles.panelGrid}>
+              <div className={PANEL_GRID}>
                 {PANELS.map((name) => {
                   const ps = state.panels[name];
                   return (
                     <Panel
                       key={name}
                       title={PANEL_LABELS[name]}
-                      icon={panelIcon(name)}
+                      icon={PANEL_ICONS[name]}
                       summary={ps.status === "ready" || ps.status === "error" ? ps.summary : undefined}
                       fallback={ps.status === "loading" ? "Loading…" : ps.status === "error" ? `Failed: ${ps.error}` : undefined}
                     />
@@ -436,12 +406,11 @@ export default function Page() {
             )}
 
             {state.errors.length > 0 && (
-              <div className={styles.errorBanner}>
-                <strong>Partial data — some sources errored</strong>
+              <ErrorBanner title="Partial data — some sources errored">
                 {state.errors.slice(0, 5).map((e, i) => (
                   <span key={i}>{e.source}: {e.message}</span>
                 ))}
-              </div>
+              </ErrorBanner>
             )}
           </div>
         </main>
@@ -450,15 +419,3 @@ export default function Page() {
   );
 }
 
-function panelIcon(name: PanelKey): ReactNode {
-  switch (name) {
-    case "capital": return <IconCapital />;
-    case "technical": return <IconChart />;
-    case "wheel": return <IconOptions />;
-    case "news": return <IconNews />;
-    case "digest": return <IconDoc />;
-    case "sentiment": return <IconHeart />;
-    case "fundamentals": return <IconFundamentals />;
-    case "insider": return <IconInsider />;
-  }
-}

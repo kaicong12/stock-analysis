@@ -2,7 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import styles from "../page.module.css";
+import styles from "./Markdown.module.css";
 
 const BLOCK_ELEMENTS = ["p", "h1", "h2", "h3", "h4", "h5", "h6"];
 
