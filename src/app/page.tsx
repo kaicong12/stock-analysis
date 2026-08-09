@@ -9,11 +9,12 @@ import { MacroBriefing } from "./components/MacroBriefing";
 import { Panel, PANEL_ICONS, PANEL_LABELS } from "./components/Panel";
 import { HeroEmpty, MAIN, MAIN_INNER, PANEL_GRID, SHELL } from "./components/Shell";
 import { SkeletonBlock, Welcome } from "./components/Welcome";
+import { StrikeDesk } from "./components/StrikeDesk";
 import { Topbar } from "./components/Topbar";
 import { VerdictCard } from "./components/VerdictCard";
 
 type PanelKey = keyof Verdict["panels"];
-const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "wheel", "sentiment", "digest", "news", "insider"];
+const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "sentiment", "digest", "news", "insider"];
 
 // Earnings within this many days (inclusive) triggers the pre-search confirm
 // gate — matches the conservative "no binary events in the 30-45 DTE expiry
@@ -202,7 +203,7 @@ export default function Page() {
       .catch(() => setMacroStatus("error"));
   }, []);
 
-  // The expensive half: 8 panel Gemini calls + the synth verdict. Split out of
+  // The expensive half: 7 panel Gemini calls + the synth verdict. Split out of
   // runAnalysis so the earnings gate can defer it until the user confirms.
   const runPanelsAndVerdict = useCallback(async (prep: PrepPayload, signal: AbortSignal) => {
     const panelResults = await Promise.allSettled(
@@ -375,6 +376,8 @@ export default function Page() {
                 }}
               />
             )}
+
+            {state.verdict && <StrikeDesk symbol={state.symbol} ticker={state.ticker} />}
 
             {state.status === "verdict" && !state.verdict && (
               <ErrorBanner title="Synthesizing verdict…" tone="info">

@@ -91,9 +91,14 @@ describe("buildWheelPlan", () => {
     zone: computeZone({ analystTargetLow: 155, sma200: 148.9, support: 161.2 }),
     support: 161.2,
     resistance: 178,
+    supportLevels: [161.2, 148.9],
+    resistanceLevels: [178, 192.5],
+    sma200: 148.9,
     priceAction: null,
     nextEarningsDate: null,
     exDividendDate: null,
+    fomcDates: [],
+    forwardEps: null,
   };
 
   it("derives the expected move from the expiry's own ATM IV", () => {
@@ -175,6 +180,33 @@ describe("buildWheelPlan", () => {
     const ok = buildWheelPlan({ ...base, nextEarningsDate: far }).putLeg[0];
     expect(ok.excluded).toBeNull();
     expect(ok.rows.length).toBeGreaterThan(0);
+  });
+
+  it("flags an FOMC inside the window without excluding the expiry", () => {
+    const soon = new Date(Date.now() + 14 * 86400_000).toISOString().slice(0, 10);
+    const plan = buildWheelPlan({ ...base, fomcDates: [soon] });
+    expect(plan.putLeg[0].fomcInWindow).toBe(true);
+    expect(plan.putLeg[0].excluded).toBeNull();
+    expect(plan.putLeg[0].rows.length).toBeGreaterThan(0);
+  });
+
+  it("nets the credit off the strike — a put owns lower, a call sells higher", () => {
+    const plan = buildWheelPlan(base);
+    const put = plan.putLeg[0].rows.find((r) => r.strike === 150)!;
+    expect(put.effective).toBeCloseTo(148.8, 2); // 150 - 1.20
+    expect(put.effectiveVsSpot).toBeCloseTo(-13.7, 1);
+
+    const call = plan.callLeg[0].rows.find((r) => r.strike === 195)!;
+    expect(call.effective).toBeCloseTo(195.86, 2); // 195 + 0.86
+    expect(call.effectiveVsSpot).toBeCloseTo(13.6, 1);
+  });
+
+  it("prices the multiple off the basis, not spot, and only with forward EPS", () => {
+    expect(buildWheelPlan(base).putLeg[0].rows[0].peAtEffective).toBeNull();
+
+    const rows = buildWheelPlan({ ...base, forwardEps: 6 }).putLeg[0].rows;
+    const put = rows.find((r) => r.strike === 150)!;
+    expect(put.peAtEffective).toBeCloseTo(24.8, 1); // 148.80 / 6
   });
 
   it("returns empty legs without a chain instead of throwing", () => {

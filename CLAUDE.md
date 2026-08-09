@@ -9,7 +9,7 @@ The user is a **long-term investor who wheels the names they want to own** — n
 - **Vol is a bonus, not a gate.** Rich premium means better pay for waiting; thin premium is a *downgrade, not a veto*. Never gate an entry on an IV threshold. True IV Rank is unavailable (no source carries historical implied vol); the app uses a realized-vol percentile and must always label it as a proxy.
 - **Weakness is ambiguous, not disqualifying.** A mild breakdown can be the price the wheeler wants — warn, don't block. Only a *severe* breakdown (thesis damage) blocks an entry.
 - **No ticker screening.** The user picks tickers themselves. Don't build market-cap, exchange, or liquidity gates on the underlying; per-strike liquidity (a real bid, sane spread, some OI) is still fair game.
-- **No binary events:** never suggest an expiry with earnings, FDA, or FOMC dates inside its window.
+- **No binary events:** never suggest an expiry with earnings or FDA dates inside its window — these are dropped in code. **FOMC is marked, not blocked.** The Fed meets roughly every six weeks, so a hard veto would empty almost every 30–45 DTE expiry; a scheduled macro event is also already priced into the IV being paid. Dates come from the Fed's own calendar (`src/lib/wheel/fomc.ts`) and surface as an amber marker on the event runway.
 - **No broker integration.** The app has no account, NAV, cash, or position data and must not acquire any. Consequences:
   - Recommendations are **entry-or-pass** on a fresh position. Never advise holding, closing, trimming, or rolling — the app cannot see whether a position exists.
   - **Never state a position size** — no share counts, contract counts, or dollar risk. Annualized yield % is fine; it's size-independent. Sizing happens at the broker.

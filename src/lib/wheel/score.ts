@@ -27,6 +27,8 @@ interface ScoreContext {
   resistance: number | null;
   nextEarningsDate: string | null;
   exDividendDate: string | null;
+  fomcDates: string[];
+  forwardEps: number | null;
 }
 
 // ATM IV of the expiry itself, so the expected move matches the contract being
@@ -55,14 +57,26 @@ function scoreRows(
     ? rows
     : rows.filter((r) => (side === "put" ? r.strike < bound : r.strike > bound));
 
-  const scored: ScoredStrike[] = beyondBand.map((row) => ({
-    ...row,
-    annYield: annualizedYield(row.mid, side === "put" ? row.strike : ctx.spot, dte),
-    zonePos: side === "put"
-      ? classifyPutStrike(row.strike, ctx.zone)
-      : classifyCallStrike(row.strike, ctx.zone),
-    clearsLevel: level === null ? null : side === "put" ? row.strike < level : row.strike > level,
-  }));
+  const scored: ScoredStrike[] = beyondBand.map((row) => {
+    const effective = row.mid > 0
+      ? Number((side === "put" ? row.strike - row.mid : row.strike + row.mid).toFixed(2))
+      : null;
+    return {
+      ...row,
+      annYield: annualizedYield(row.mid, side === "put" ? row.strike : ctx.spot, dte),
+      zonePos: side === "put"
+        ? classifyPutStrike(row.strike, ctx.zone)
+        : classifyCallStrike(row.strike, ctx.zone),
+      clearsLevel: level === null ? null : side === "put" ? row.strike < level : row.strike > level,
+      effective,
+      effectiveVsSpot: effective === null
+        ? null
+        : Number((((effective / ctx.spot) - 1) * 100).toFixed(1)),
+      peAtEffective: effective === null || !ctx.forwardEps || ctx.forwardEps <= 0
+        ? null
+        : Number((effective / ctx.forwardEps).toFixed(1)),
+    };
+  });
 
   scored.sort((a, b) => (side === "put" ? b.strike - a.strike : a.strike - b.strike));
   return scored.slice(0, MAX_ROWS);
@@ -96,6 +110,9 @@ function scoreExpiry(expiry: ChainExpiry, side: "put" | "call", ctx: ScoreContex
     earningsInWindow,
     // Ex-div only threatens a short call, via early exercise to capture the div.
     exDivInWindow: side === "call" && dateInWindow(ctx.exDividendDate, expiry.dte),
+    // The FOMC meets roughly every 6 weeks, so blocking on it would empty every
+    // 30-45 DTE expiry. Flagged for the runway to draw; never excluded.
+    fomcInWindow: ctx.fomcDates.some((d) => dateInWindow(d, expiry.dte)),
     excluded,
     rows: excluded
       ? []
@@ -128,9 +145,14 @@ export interface BuildPlanInput {
   zone: AcquisitionZone | null;
   support: number | null;
   resistance: number | null;
+  supportLevels: number[];
+  resistanceLevels: number[];
+  sma200: number | null;
   priceAction: PriceAction | null;
   nextEarningsDate: string | null;
   exDividendDate: string | null;
+  fomcDates: string[];
+  forwardEps: number | null;
 }
 
 export function buildWheelPlan(input: BuildPlanInput): WheelPlan {
@@ -142,6 +164,17 @@ export function buildWheelPlan(input: BuildPlanInput): WheelPlan {
     spot,
     regime: input.regime,
     zone: input.zone,
+    events: {
+      earnings: input.nextEarningsDate,
+      exDividend: input.exDividendDate,
+      fomc: input.fomcDates,
+    },
+    levels: {
+      support: input.supportLevels,
+      resistance: input.resistanceLevels,
+      sma200: input.sma200,
+    },
+    forwardEps: input.forwardEps,
     warning,
     blocked,
   };
@@ -156,6 +189,8 @@ export function buildWheelPlan(input: BuildPlanInput): WheelPlan {
     resistance: input.resistance,
     nextEarningsDate: input.nextEarningsDate,
     exDividendDate: input.exDividendDate,
+    fomcDates: input.fomcDates,
+    forwardEps: input.forwardEps,
   };
   return {
     ...base,

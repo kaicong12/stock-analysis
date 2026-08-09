@@ -12,8 +12,7 @@ import type {
   SleeveVerdict,
   StockAction,
 } from "../../lib/types";
-import { WheelPane } from "./WheelPane";
-import { Minus, Play, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowDown, Minus, Play, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 
 type Tone = "bullish" | "bearish" | "neutral";
 type IconCmp = React.ComponentType<{ className?: string }>;
@@ -81,7 +80,7 @@ export function VerdictCard({ data }: { data: DashboardData }) {
 
       <div className="grid grid-cols-2 items-stretch gap-4 max-[1024px]:grid-cols-1">
         <StockSleeve sleeve={v.stock} />
-        <DerivativesSleeve sleeve={v.derivatives} symbol={data.symbol} ticker={data.ticker} />
+        <DerivativesSleeve sleeve={v.derivatives} />
       </div>
 
       <p className="col-span-full text-[13.5px] leading-[1.65] text-on-surface">
@@ -131,15 +130,7 @@ function StockSleeve({ sleeve }: { sleeve: SleeveVerdict<StockAction> }) {
   );
 }
 
-function DerivativesSleeve({
-  sleeve,
-  symbol,
-  ticker,
-}: {
-  sleeve: SleeveVerdict<DerivativesAction>;
-  symbol: string;
-  ticker: string;
-}) {
+function DerivativesSleeve({ sleeve }: { sleeve: SleeveVerdict<DerivativesAction> }) {
   const meta = DERIVATIVES_ACTION_META[sleeve.action];
   // PASS has no structure of its own, so it reads off the directional bias;
   // every entry action carries its own inherent tone.
@@ -147,7 +138,10 @@ function DerivativesSleeve({
   return (
     <Sleeve label="Wheel Sleeve" action={meta.label} icon={meta.baseIcon} tone={tone}>
       <AdjustmentBlock adj={sleeve.adjustment} />
-      <WheelPane symbol={symbol} ticker={ticker} />
+      <div className="mt-3 flex items-center gap-2 rounded border border-outline-variant bg-surface-container px-3 py-2.5 text-[11px] font-semibold tracking-[0.04em] uppercase text-on-surface-variant">
+        <ArrowDown className="size-3 text-tertiary" />
+        Strike desk below
+      </div>
     </Sleeve>
   );
 }

@@ -16,7 +16,6 @@ interface VerdictBody {
   panels?: {
     capital: PanelSummary;
     technical: PanelSummary;
-    wheel: PanelSummary;
     news: PanelSummary;
     digest: PanelSummary;
     sentiment: PanelSummary;

@@ -62,6 +62,11 @@ export interface ScoredStrike extends ChainStrike {
   annYield: number | null;     // percent, size-independent
   zonePos: ZonePosition;
   clearsLevel: boolean | null;
+  // The price the leg actually transacts at once the credit is counted: strike
+  // − mid for a put (owned at), strike + mid for a call (sold at).
+  effective: number | null;
+  effectiveVsSpot: number | null;  // percent
+  peAtEffective: number | null;    // effective ÷ forward EPS
 }
 
 export interface ScoredExpiry {
@@ -72,8 +77,22 @@ export interface ScoredExpiry {
   emUpper: number | null;
   earningsInWindow: boolean;
   exDivInWindow: boolean;
+  fomcInWindow: boolean;       // flagged, never excluded — see CLAUDE.md
   excluded: string | null;     // non-null means rows is empty
   rows: ScoredStrike[];        // beyond emLower/emUpper, nearest edge first
+}
+
+export interface WheelEvents {
+  earnings: string | null;
+  exDividend: string | null;
+  fomc: string[];
+}
+
+// Chart anchors the ladder draws behind the strikes. Levels arrive nearest-first.
+export interface WheelLevels {
+  support: number[];
+  resistance: number[];
+  sma200: number | null;
 }
 
 export interface WheelPlan {
@@ -82,6 +101,9 @@ export interface WheelPlan {
   spot: number | null;
   regime: VolRegime | null;
   zone: AcquisitionZone | null;
+  events: WheelEvents;
+  levels: WheelLevels;
+  forwardEps: number | null;
   putLeg: ScoredExpiry[];
   callLeg: ScoredExpiry[];     // requires shares the app cannot verify
   warning: string | null;

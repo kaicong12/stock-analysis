@@ -5,6 +5,7 @@ import {
   getVolRegime,
   getWheelChain,
 } from "../moomoo/sidecar";
+import { fetchFomcDates } from "./fomc";
 import { buildWheelPlan } from "./score";
 import { computeZone } from "./zone";
 import type { WheelPlan } from "./types";
@@ -25,12 +26,13 @@ export function fetchWheelPlan(ticker: string, symbol: string): Promise<WheelPla
 }
 
 async function buildPlan(ticker: string, symbol: string): Promise<WheelPlan> {
-  const [chain, regime, tech, priceAction, fundamentals] = await Promise.all([
+  const [chain, regime, tech, priceAction, fundamentals, fomcDates] = await Promise.all([
     getWheelChain(symbol),
     getVolRegime(symbol),
     getTechnicalIndicators(symbol),
     getPriceAction(symbol),
     getFundamentals(symbol).catch(() => null),
+    fetchFomcDates(),
   ]);
 
   const f = fundamentals?.data ?? null;
@@ -46,8 +48,13 @@ async function buildPlan(ticker: string, symbol: string): Promise<WheelPlan> {
     }),
     support: tech?.support ?? null,
     resistance: tech?.resistance ?? null,
+    supportLevels: tech?.supportLevels ?? [],
+    resistanceLevels: tech?.resistanceLevels ?? [],
+    sma200: tech?.sma200 ?? null,
     priceAction,
     nextEarningsDate: f?.nextEarningsDate ?? null,
     exDividendDate: f?.exDividendDate ?? null,
+    fomcDates,
+    forwardEps: f?.forwardEps ?? null,
   });
 }
