@@ -8,7 +8,7 @@ OPEND_PORT = int(os.getenv("FUTU_OPEND_PORT", "11111"))
 
 DB_FILE = Path(__file__).resolve().parent.parent / "data" / "app.sqlite"
 
-# Peer universe filter — mirrors the CLAUDE.md tradeable universe.
+# Read-through peer graph only — CLAUDE.md forbids screening the user's ticker.
 PEERS_MIN_CAP = 10_000_000_000
 PEERS_MIN_PRICE = 20
 

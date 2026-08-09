@@ -18,7 +18,7 @@ const workSans = Work_Sans({
 
 export const metadata: Metadata = {
   title: "Alpha Term — Institutional Intelligence",
-  description: "Synthesized stock analysis with portfolio-aware verdicts.",
+  description: "Synthesized stock analysis with dual-sleeve wheel-entry verdicts.",
 };
 
 export default function RootLayout({
