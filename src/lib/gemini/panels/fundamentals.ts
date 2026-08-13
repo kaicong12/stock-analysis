@@ -1,6 +1,4 @@
-// Fundamentals panel. Pulls yfinance data via the python sidecar and asks
-// Gemini to read it as a structured panel (valuation, growth, profitability,
-// balance sheet, analyst view, earnings calendar).
+// Fundamentals panel over the yfinance snapshot from the python sidecar.
 
 import { genJson } from "../client";
 import { daysUntilISO } from "../../date";
@@ -24,6 +22,7 @@ function compactData(data: FundamentalsResult["data"]): Record<string, unknown> 
   return out;
 }
 
+/** Produces the fundamentals panel from the yfinance snapshot. */
 export async function analyzeFundamentals(
   input: FundamentalsResult | null,
   ctx: PanelContext

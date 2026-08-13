@@ -1,3 +1,5 @@
+// Markdown renderers for model-written prose, block and inline.
+
 "use client";
 
 import ReactMarkdown from "react-markdown";
@@ -6,6 +8,7 @@ import styles from "./Markdown.module.css";
 
 const BLOCK_ELEMENTS = ["p", "h1", "h2", "h3", "h4", "h5", "h6"];
 
+/** Renders a markdown block with GFM enabled. */
 export function Markdown({ children, className }: { children: string; className?: string }) {
   return (
     <div className={styles.markdown + (className ? " " + className : "")}>
@@ -14,15 +17,12 @@ export function Markdown({ children, className }: { children: string; className?
   );
 }
 
-// The panel prompts hand the model a "- " prefixed exemplar, so single-line
-// fields often carry that prefix; inside the host <li> it would draw a second
-// bullet. Multi-line values keep it — there the list is real.
+// Drops the bullet prefix a single-line value inherited from its prompt exemplar.
 function stripLeadingBullet(text: string): string {
   return text.includes("\n") ? text : text.replace(/^\s*[-*+]\s+/, "");
 }
 
-// For a phrase inside an element that already sets the layout: block marks are
-// unwrapped so a stray "##" renders as text rather than a heading.
+/** Renders markdown as a phrase, unwrapping block marks so a stray "##" stays text. */
 export function MarkdownInline({ children }: { children: string }) {
   return (
     <span className={styles.markdownInline}>

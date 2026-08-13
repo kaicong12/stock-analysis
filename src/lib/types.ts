@@ -1,3 +1,5 @@
+// Shared domain types for the dashboard: source payloads, panel summaries, and the verdict.
+
 export type AnomalyKind = "capital" | "technical" | "derivatives";
 
 export interface AnomalyResult {
@@ -22,11 +24,6 @@ export interface NewsResult {
   items: NewsItem[];
 }
 
-// Morningstar research report (OpenD get_research_morningstar_report), the News
-// Flow panel's self-signal. Flattened from the SDK's nested {context,...} shape
-// by sidecar.getMorningstar — text fields are plain strings here. `available` is
-// false when OpenD has no report for the code (unsupported asset, rate limit, or
-// SDK too old); the panel then degrades to "n/a".
 export interface MorningstarReport {
   symbol: string;
   available: boolean;
@@ -34,8 +31,8 @@ export interface MorningstarReport {
   ratingType: number | null;          // 0 unknown, 1 quantitative, 2 qualitative
   fairValue: number | null;
   fairValueNote: string;
-  economicMoatLabel: string | null;   // "Wide" | "Narrow" | "None"
-  uncertaintyLabel: string | null;    // "Low" | "Medium" | "High" | "Very High" | "Extreme"
+  economicMoatLabel: string | null;
+  uncertaintyLabel: string | null;
   financialHealthLabel: string | null;
   capitalAllocationLabel: string | null;
   bullSay: string[];
@@ -73,67 +70,47 @@ export interface SnapshotResult {
   raw: Record<string, unknown>;
 }
 
-// Structured volatility snapshot from the sidecar's /options/vol-summary.
-// All IV/HV values are decimals (0.32 = 32% annualized). Feeds the derivatives
-// panel with hard numbers so the model doesn't have to infer IV regime,
-// IV-HV premium, or skew from the anomaly report's prose.
 export interface VolSummary {
   symbol: string;
   spot: number;
-  expiryUsed: string;            // ISO date of the expiry sampled for IV
-  dte: number;                   // actual DTE of expiryUsed
-  atmIv: number | null;          // avg(call, put) IV at the closest-to-spot strike
+  expiryUsed: string;
+  dte: number;
+  atmIv: number | null;          // decimal, annualized (0.32 = 32%)
   atmIvCall: number | null;
   atmIvPut: number | null;
   atmStrikeCall: number | null;
   atmStrikePut: number | null;
   hv30: number | null;           // 30 trading-day HV; sqrt(252)-annualized
   hv60: number | null;
-  ivHvRatio: number | null;      // atmIv / hv30; >1.10 = meaningful IV premium
+  ivHvRatio: number | null;      // atmIv / hv30
   skew25d: number | null;        // putIv(Δ≈-0.25) - callIv(Δ≈+0.25)
   skew25dCallStrike: number | null;
   skew25dPutStrike: number | null;
   hvSampleSize: number;
 }
 
-// Server-computed 1-standard-deviation expected move over the sampled (~30 DTE)
-// expiry, derived from ATM IV: move = spot × atmIv × sqrt(dte/365). This is the
-// market's own implied range; the synth uses it to sanity-check that a credit
-// spread's short strike (placed beyond support/resistance) actually sits OUTSIDE
-// the expected move, rather than inside it where it's statistically exposed.
-// Null when the vol snapshot is unavailable (then the check no-ops).
 export interface ExpectedMove {
   spot: number;
   atmIv: number;        // decimal, annualized (0.30 = 30%)
-  dte: number;          // calendar DTE of the sampled expiry
-  expiry: string;       // ISO date of the sampled expiry
+  dte: number;
+  expiry: string;
   move: number;         // 1-SD absolute move in price terms
-  movePct: number;      // move / spot, as a percent (e.g. 8.4 = ±8.4%)
-  upper: number;        // spot + move (1-SD upper bound)
-  lower: number;        // spot - move (1-SD lower bound)
+  movePct: number;      // percent, e.g. 8.4 = ±8.4%
+  upper: number;
+  lower: number;
 }
 
-// Live levels snapshot for a single underlying — the data behind the VerdictCard
-// what-if calculator. expectedMove + support/resistance are recomputed at request
-// time because they DRIFT as spot/IV/DTE move; the user compares them against the
-// short strike they're considering, to check it sits outside both bounds.
 export interface LevelsSnapshot {
   symbol: string;
   spot: number | null;
-  asOf: string | null;                 // ISO date of the latest bar used (from technicals)
-  expectedMove: ExpectedMove | null;   // live 1-SD bounds; null when vol snapshot unavailable
-  support: number | null;              // nearest live support below spot
-  resistance: number | null;           // nearest live resistance above spot
+  asOf: string | null;
+  expectedMove: ExpectedMove | null;
+  support: number | null;
+  resistance: number | null;
   supportLevels: number[];
   resistanceLevels: number[];
 }
 
-// Deterministic price-action / breakdown signal from the sidecar's /price-action
-// (yfinance daily OHLCV). Feeds the verdict's "falling-knife guard": a confirmed
-// `signal: "breakdown"` HARD-VETOES selling put spreads / CSPs into the decline;
-// a `"breakout"` hard-vetoes selling call spreads / covered calls into a melt-up.
-// All numbers are computed server-side so the guard can't be argued out of by a
-// mean-reversion-happy technical panel. Null fields when bars are insufficient.
 export type PriceActionSignal = "breakdown" | "breakout" | "none";
 
 export interface PriceAction {
@@ -151,7 +128,7 @@ export interface PriceAction {
   atHigh20: boolean;                 // within ~1% of the 20-day high
   consecutiveDownDays: number;
   consecutiveUpDays: number;
-  todayChangePct: number | null;     // latest close vs prior close
+  todayChangePct: number | null;
   gapPct: number | null;             // latest open vs prior close
   volRatio: number | null;           // latest volume / 20-day avg volume
   hv30: number | null;
@@ -160,19 +137,8 @@ export interface PriceAction {
   barsUsed: number;
 }
 
-// Standing technical-indicator readings from the sidecar's /technical/indicators
-// (computed from cached daily OHLCV). Complements the technical ANOMALY feed
-// (get_technical_unusual), which only fires on fresh cross/threshold EVENTS and
-// is blind to a persistent state like "RSI has been > 70 for weeks". Null fields
-// when there aren't enough bars for that indicator. Computed server-side, never
-// via the LLM, so the figures the panel/verdict cite are exact.
 export type RsiState = "overbought" | "oversold" | "neutral" | "n/a";
 
-// Trend-regime classification (ADX-driven). Tells the verdict whether an
-// overbought/oversold oscillator reading is actionable mean-reversion (range)
-// or a momentum trap to NOT fade (trend). A strong ticker can ride overbought
-// for weeks inside a strong_uptrend; a weak one bleeds oversold for weeks
-// inside a strong_downtrend — neither is a reversal signal on its own.
 export type TrendRegime =
   | "strong_uptrend"
   | "uptrend"
@@ -181,21 +147,19 @@ export type TrendRegime =
   | "strong_downtrend"
   | "n/a";
 
-// Regular RSI/price divergence — the actual exhaustion confirmation. "bearish"
-// = price higher-high while RSI lower-high (overbought finally fading);
-// "bullish" = price lower-low while RSI higher-low (oversold downtrend turning).
+// "bearish" = price higher-high while RSI lower-high; "bullish" is the mirror.
 export type RsiDivergence = "bearish" | "bullish" | "none";
 
 export interface TechnicalIndicators {
   symbol: string;
   spot: number | null;
-  asOf: string | null;               // ISO date of the latest bar used
+  asOf: string | null;
   barsUsed: number;
   rsi14: number | null;              // Wilder RSI(14); >=70 overbought, <=30 oversold
   rsiState: RsiState;
   macd: number | null;               // MACD line (EMA12 - EMA26)
   macdSignal: number | null;         // 9-period EMA of the MACD line
-  macdHist: number | null;           // macd - signal; >0 bullish, <0 bearish
+  macdHist: number | null;           // macd - signal
   bbUpper: number | null;            // Bollinger(20,2) upper band
   bbMid: number | null;              // 20-day SMA (band midline)
   bbLower: number | null;
@@ -212,34 +176,25 @@ export interface TechnicalIndicators {
   ret5d: number | null;              // 5-trading-day % return
   ret20d: number | null;             // 20-trading-day % return
   adx14: number | null;              // Wilder ADX(14); >=20 trending, >=35 strong
-  plusDi: number | null;             // +DI at the latest bar (up-pressure)
-  minusDi: number | null;            // -DI at the latest bar (down-pressure)
-  regime: TrendRegime;               // ADX+DI+SMA-stack trend classification
-  rsiDivergence: RsiDivergence;      // regular RSI/price divergence (exhaustion tell)
-  // Swing-pivot support/resistance + market structure (server-computed from the
-  // same daily OHLCV). Levels are clustered pivots split by side of spot, nearest
-  // first. Drive credit-spread strike placement: sell put spreads BELOW support,
-  // call spreads ABOVE resistance. All null/"n/a" when bars are thin (<40).
-  support: number | null;            // nearest support zone below spot
-  resistance: number | null;         // nearest resistance zone above spot
-  supportLevels: number[];           // up to 3 support zones, nearest below first
-  resistanceLevels: number[];        // up to 3 resistance zones, nearest above first
-  structureBias: StructureBias;      // swing structure: up | down | range | n/a
-  structureEvent: StructureEvent;    // latest break: BOS | CHoCH | none
-  structureDirection: SwingDirection; // direction of the break: up | down | n/a
+  plusDi: number | null;
+  minusDi: number | null;
+  regime: TrendRegime;
+  rsiDivergence: RsiDivergence;
+  support: number | null;
+  resistance: number | null;
+  supportLevels: number[];           // up to 3 zones, nearest below spot first
+  resistanceLevels: number[];        // up to 3 zones, nearest above spot first
+  structureBias: StructureBias;
+  structureEvent: StructureEvent;
+  structureDirection: SwingDirection;
   structureLevel: number | null;     // the swing level that was broken
 }
 
-// Swing market-structure classification. "BOS" (break of structure) = a break
-// that CONTINUES the prevailing swing trend; "CHoCH" (change of character) = the
-// first break AGAINST it (or out of a range) — the earliest reversal tell.
 export type StructureBias = "up" | "down" | "range" | "n/a";
+// "BOS" continues the prevailing swing trend; "CHoCH" is the first break against it.
 export type StructureEvent = "BOS" | "CHoCH" | "none";
 export type SwingDirection = "up" | "down" | "n/a";
 
-// Fundamentals from yfinance (via python sidecar). All numeric fields are
-// nullable — yfinance returns sparse data for non-US listings, ETFs, and
-// freshly-IPO'd names.
 export interface FundamentalsData {
   shortName: string | null;
   sector: string | null;
@@ -284,7 +239,7 @@ export interface FundamentalsData {
   heldPercentInstitutions: number | null; // decimal
   currency: string | null;
   nextEarningsDate: string | null;        // ISO date YYYY-MM-DD
-  exDividendDate: string | null;          // ISO date YYYY-MM-DD; drives early-assignment risk on short calls
+  exDividendDate: string | null;          // ISO date YYYY-MM-DD
 }
 
 export interface FundamentalsResult {
@@ -292,8 +247,6 @@ export interface FundamentalsResult {
   yfTicker: string;
   data: FundamentalsData;
 }
-
-// ----- Per-panel summary (output of each per-skill analyzer) -----
 
 export type PanelDirection = "bullish" | "bearish" | "neutral" | "mixed" | "n/a";
 
@@ -307,7 +260,6 @@ export interface PanelMeta {
   value: string;
 }
 
-// A large-cap sector peer resolved from OpenD plates (sidecar /peers).
 export interface PeerInfo {
   code: string;   // moomoo symbol, e.g. "US.NVDA"
   name: string | null;
@@ -321,9 +273,6 @@ export interface PeersResult {
   peers: PeerInfo[];
 }
 
-// One peer-news read-through entry in the News Flow panel's sub-block.
-// Kept strictly separate from the self-news fields (direction/headline/etc.):
-// peer news must never influence the panel's own-ticker direction.
 export type ReadThroughClass = "sector-sentiment" | "competitive" | "shared-input";
 
 export interface ReadThrough {
@@ -334,7 +283,6 @@ export interface ReadThrough {
   url: string;
 }
 
-// A peer-news item after the fan-out + collation step (httpApi.collatePeerNews).
 export interface PeerNewsItem {
   source: string;     // peer ticker the item surfaced under
   title: string;
@@ -342,57 +290,35 @@ export interface PeerNewsItem {
   publishTime: number;
 }
 
-// ----- Insider transactions (SEC Form 4 via Massive, ex-Polygon) -----
-
-// One Form 4 transaction line, adapted from the vendor payload. `code` is the
-// raw SEC transaction code (P/S/A/M/F/G/...); `isOpenMarket` is true only for
-// P (open-market buy) and S (open-market sell) — the conviction trades.
 export interface InsiderTransaction {
   name: string;
   title: string;
-  code: string;
+  code: string;             // raw SEC transaction code (P/S/A/M/F/G/...)
   typeLabel: string;        // human-readable code, e.g. "Buy (open mkt)"
-  isOpenMarket: boolean;
-  // True when the trade was made under a pre-scheduled Rule 10b5-1 plan
-  // (aff_10b5_one). Plan sales are automatic/pre-committed and carry NO
-  // directional conviction — the single most important field for reading
-  // large-cap selling honestly (most mega-cap insider selling is 10b5-1).
-  isPlan: boolean;
-  // Discretionary = open-market AND not a 10b5-1 plan trade. The only sells
-  // that carry a bearish signal; all open-market buys are discretionary.
-  isDiscretionary: boolean;
+  isOpenMarket: boolean;    // true only for P and S
+  isPlan: boolean;          // pre-scheduled Rule 10b5-1 plan trade (aff_10b5_one)
+  isDiscretionary: boolean; // open-market AND not a 10b5-1 plan trade
   transactionDate: string;  // ISO YYYY-MM-DD
   filingDate: string;       // ISO YYYY-MM-DD
   shares: number;
   price: number;            // per-share; 0 for grants/exercises/gifts
   value: number;            // shares × price (vendor-provided when available)
   sharesOwnedAfter: number | null;
-  // Fraction of the insider's post-trade stake that this trade represents:
-  // shares / (shares + sharesOwnedAfter). A 60%-of-stake sell is conviction;
-  // a 2%-of-stake sell is routine diversification. null when holdings unknown.
-  pctOfHoldings: number | null;
+  pctOfHoldings: number | null;     // shares / (shares + sharesOwnedAfter)
   acquiredDisposed: string | null;  // "A" acquired / "D" disposed
 }
 
-// Deterministic aggregates over the window — computed in code, never by the LLM,
-// so the figures the panel and verdict cite are always exact. The directional
-// read keys off DISCRETIONARY flow (buys + non-plan sells); routine 10b5-1
-// selling is tracked separately and excluded from the conviction signal.
 export interface InsiderFlowSummary {
-  buyCount: number;              // open-market BUY (code P) transactions (all discretionary)
-  buyValue: number;              // total $ open-market bought
-  distinctBuyers: number;        // distinct insiders buying open-market (cluster signal)
-  // Discretionary (non-plan) open-market sells — the actual bearish signal.
-  discSellCount: number;
+  buyCount: number;              // open-market BUY (code P) transactions
+  buyValue: number;
+  distinctBuyers: number;
+  discSellCount: number;         // discretionary (non-plan) open-market sells
   discSellValue: number;
-  distinctDiscSellers: number;   // distinct discretionary sellers (cluster = stronger)
-  // Routine Rule 10b5-1 pre-scheduled sells — tracked, but NOT a conviction signal.
-  planSellCount: number;
+  distinctDiscSellers: number;
+  planSellCount: number;         // routine Rule 10b5-1 pre-scheduled sells
   planSellValue: number;
-  // Net CONVICTION value = buyValue − discSellValue (plan sells excluded).
-  // Positive = net discretionary accumulation; negative = net discretionary selling.
-  netConviction: number;
-  totalFilings: number;          // all Form 4 rows in the window (incl. non-open-market)
+  netConviction: number;         // buyValue − discSellValue (plan sells excluded)
+  totalFilings: number;          // all Form 4 rows in the window
 }
 
 export interface InsiderResult {
@@ -402,10 +328,6 @@ export interface InsiderResult {
   flow: InsiderFlowSummary;
 }
 
-// One row rendered in the insider panel's transaction sub-block. Attached to the
-// PanelSummary in code (deterministic) — distinct from the LLM-authored bullets.
-// `direction` drives the row colour: a routine 10b5-1 sell renders "neutral"
-// (not red) so the user can see at a glance that it isn't a conviction signal.
 export interface InsiderFlowItem {
   name: string;
   title: string;
@@ -415,7 +337,7 @@ export interface InsiderFlowItem {
   date: string;
   shares: number;
   value: number;
-  pctOfHoldings: number | null;  // fraction of stake traded (for discretionary trades)
+  pctOfHoldings: number | null;
 }
 
 export interface PanelSummary {
@@ -423,42 +345,28 @@ export interface PanelSummary {
   bullets: string[];
   direction?: PanelDirection;
   conclusion?: string;
-  // Stock Digest panel only: the web-grounded answer rendered verbatim as
-  // markdown. When present, the panel shows this prose instead of the
-  // headline/conclusion/bullets block. The synth also receives it (full read).
-  prose?: string;
+  prose?: string;             // Stock Digest only: web-grounded answer rendered verbatim as markdown
   evidence?: PanelEvidence[];
   meta?: PanelMeta[];
   readThrough?: ReadThrough[];
-  // Insider panel only: deterministic transaction rows attached in code (the LLM
-  // writes the narrative; these carry the exact numbers the UI renders).
-  insiderFlow?: InsiderFlowItem[];
+  insiderFlow?: InsiderFlowItem[];  // insider panel only: deterministic rows attached in code
 }
-
-// ----- Verdict — dual sleeve (stock half + derivatives half) -----
 
 export type SleeveDirection = "bullish" | "bearish" | "neutral";
 
-// The app has no view of what the user actually holds — there is no broker
-// feed. Management actions (INCREASE / TRIM / HOLD / CLOSE / ROLL_OUT) would
-// require knowing the current position, so they are deliberately NOT
-// representable: the verdict is an entry-or-pass call on a fresh position.
+// Entry-or-pass only: with no broker feed there is no position to manage, so
+// INCREASE / TRIM / HOLD / CLOSE / ROLL_OUT are deliberately not representable.
 export type StockAction =
-  | "OPEN"        // Take a fresh directional position (direction tells the side).
-  | "PASS";       // No entry — skip the stock sleeve.
+  | "OPEN"
+  | "PASS";
 
-// Wheel-only. The user is a long-term investor who wheels names they want to
-// own, so the menu is the two wheel legs and nothing else — no spreads, no
-// condors, no naked or debit structures. Neither prerequisite (cash for a put,
-// shares for a call) is verifiable, so the instruction must state it.
+// Wheel-only menu: no spreads, no condors, no naked or debit structures.
 export type DerivativesAction =
-  | "SELL_CASH_SECURED_PUT"  // Leg 1: start the wheel. Assignment is an ACCEPTED outcome, not a failure.
-  | "SELL_COVERED_CALL"      // Leg 2: only if already assigned / holding ≥100 shares per contract.
-  | "PASS";                  // Not here, not at this price.
+  | "SELL_CASH_SECURED_PUT"
+  | "SELL_COVERED_CALL"
+  | "PASS";
 
-// No NAV / cash / position data reaches the synth, so there is no size field
-// here: the verdict describes the structure and the management plan, and the
-// user sizes the trade at their broker.
+// No NAV / cash / position data reaches the synth, so there is no size field.
 export interface PositionAdjustment {
   instruction: string;
   sizing?: string;
@@ -471,19 +379,15 @@ export interface PositionAdjustment {
 export interface SleeveVerdict<A extends string> {
   action: A;
   direction: SleeveDirection;
-  confidence: number;          // conviction for this sleeve (0-100), assessed on its own time horizon
+  confidence: number;          // 0-100, assessed on this sleeve's own time horizon
   adjustment: PositionAdjustment;
 }
 
 export interface Verdict {
-  rationale: string;           // 3-5 sentences, shared across both sleeves
-  riskFactor: string;          // single biggest invalidator
+  rationale: string;
+  riskFactor: string;
   stock: SleeveVerdict<StockAction>;
   derivatives: SleeveVerdict<DerivativesAction>;
-  // The server-computed standing technical state that fed BOTH sleeves of this
-  // verdict (RSI/MACD/SMA distances + swing support/resistance + structure).
-  // Surfaced to the client so the UI can display the levels under the ticker.
-  // Optional/null: absent on thin data or stale cached verdicts.
   technicalIndicators?: TechnicalIndicators | null;
   panels: {
     capital: PanelSummary;

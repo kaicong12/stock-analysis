@@ -1,8 +1,11 @@
+// Shared page-layout class strings and the pre-search hero placeholder.
+
 export const SHELL = "grid min-h-screen grid-rows-[auto_1fr] bg-surface text-on-surface";
 export const MAIN = "scrollbar-slim min-h-0 overflow-y-auto p-6 pb-12";
 export const MAIN_INNER = "mx-auto flex max-w-[1320px] flex-col gap-5";
 export const PANEL_GRID = "grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(420px,1fr))]";
 
+/** Renders the hero slot's copy before a ticker has been searched. */
 export function HeroEmpty() {
   return (
     <div className="flex flex-col items-start gap-1.5 border-b border-outline-variant py-[18px]">

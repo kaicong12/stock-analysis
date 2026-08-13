@@ -1,7 +1,11 @@
+// Concurrency primitives: a counting semaphore and a bounded parallel map.
+
+/** Counting semaphore capping how many holders may run at once. */
 export class Semaphore {
   private active = 0;
   private waiters: (() => void)[] = [];
   constructor(private readonly max: number) {}
+  /** Waits for a slot and resolves with the function that releases it. */
   acquire(): Promise<() => void> {
     return new Promise<() => void>((resolve) => {
       const tryAcquire = () => {
@@ -15,6 +19,7 @@ export class Semaphore {
       tryAcquire();
     });
   }
+  // Frees a slot and wakes the next waiter.
   private release(): void {
     this.active--;
     const next = this.waiters.shift();
@@ -22,6 +27,7 @@ export class Semaphore {
   }
 }
 
+/** Maps fn over items with at most n running at once, preserving input order. */
 export async function runWithConcurrency<I, O>(
   items: I[],
   n: number,

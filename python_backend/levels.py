@@ -4,8 +4,7 @@ from indicators import atr
 
 
 def swing_pivots(highs: list[float], lows: list[float], k: int = 3):
-    """Fractal pivots: bar i is a pivot-high if its high is the strict maximum
-    of the 2k+1 window centred on it. The last k bars are unconfirmed."""
+    """Fractal pivot highs and lows over a 2k+1 window; the last k bars are unconfirmed."""
     n = len(highs)
     ph: list[tuple[int, float]] = []
     pl: list[tuple[int, float]] = []
@@ -20,8 +19,7 @@ def swing_pivots(highs: list[float], lows: list[float], k: int = 3):
 
 
 def cluster_levels(pivots: list[tuple[int, float]], tol: float) -> list[dict]:
-    """Merge pivots within `tol` (~1 ATR) into zones. A level retested several
-    times is stronger than a one-off wick, hence the touch count."""
+    """Merge pivots within `tol` into price-ordered zones carrying a touch count."""
     if not pivots or tol <= 0:
         return []
     pts = sorted(pivots, key=lambda p: p[1])
@@ -45,12 +43,7 @@ def cluster_levels(pivots: list[tuple[int, float]], tol: float) -> list[dict]:
 
 def market_structure(closes: list[float], pivot_highs: list[tuple[int, float]],
                      pivot_lows: list[tuple[int, float]]):
-    """(bias, event, direction, level).
-
-    Bias reads the last two pivot highs and lows. A break in the SAME direction
-    as the bias is a BOS (continuation); AGAINST it, a CHoCH — the first tell of
-    a reversal.
-    """
+    """(bias, event, direction, level) — a break with the bias is BOS, against it CHoCH."""
     bias = "range"
     if len(pivot_highs) >= 2 and len(pivot_lows) >= 2:
         hh = pivot_highs[-1][1] > pivot_highs[-2][1]
@@ -71,13 +64,7 @@ def market_structure(closes: list[float], pivot_highs: list[tuple[int, float]],
 
 
 def levels(highs: list[float], lows: list[float], closes: list[float]) -> dict:
-    """Support/resistance zones plus market structure.
-
-    Highs and lows are pooled before splitting by side of spot, so a former
-    resistance now below price counts as support. Every key is always present
-    (null when bars are thin) — this rides into /technical/indicators and must
-    never raise.
-    """
+    """Support/resistance zones plus market structure; every key always present, never raises."""
     out = {
         "support": None, "resistance": None,
         "supportLevels": [], "resistanceLevels": [],

@@ -1,8 +1,4 @@
-"""Deterministic technical state: the price-action signal and indicator values.
-
-Both complement moomoo's /anomaly/technical, which only fires on fresh EVENTS
-and is blind to a standing state like "RSI has been > 70 for weeks".
-"""
+"""Deterministic technical state: the price-action signal and standing indicator values."""
 
 from fastapi import APIRouter, Query
 
@@ -16,22 +12,20 @@ from indicators import (
     run_length, sma,
 )
 from levels import levels
+from models import PriceActionResponse, TechnicalIndicatorsResponse
 from util import to_yf_ticker
 
 router = APIRouter()
 
 
 def _round(x, d=2):
+    """Round to d places, passing None through."""
     return None if x is None else round(x, d)
 
 
-@router.get("/price-action")
+@router.get("/price-action", response_model=PriceActionResponse)
 def price_action(symbol: str = Query(..., description="e.g. US.AAPL")):
-    """Breakdown / breakout signal feeding the verdict's falling-knife guard.
-
-    Returns signal='none' with 200 whenever data is thin — callers treat that as
-    "no guard", never an error.
-    """
+    """Breakdown / breakout signal; returns signal='none' with 200 whenever data is thin."""
     yf_ticker = to_yf_ticker(symbol)
     bars = daily_ohlcv(yf_ticker, n_bars=220)
 
@@ -126,10 +120,9 @@ def price_action(symbol: str = Query(..., description="e.g. US.AAPL")):
     }
 
 
-@router.get("/technical/indicators")
+@router.get("/technical/indicators", response_model=TechnicalIndicatorsResponse)
 def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
-    """Standing indicator readings. Returns 200 with nulls when data is thin —
-    a missing indicator must not break the panel."""
+    """Standing indicator readings; returns 200 with nulls when data is thin."""
     yf_ticker = to_yf_ticker(symbol)
     bars = daily_ohlcv(yf_ticker, n_bars=260)
 
@@ -159,6 +152,7 @@ def technical_indicators(symbol: str = Query(..., description="e.g. US.MU")):
     spot = closes[-1]
 
     def pct_vs(ma):
+        """Percent spot sits above(+) or below(-) a moving average."""
         return ((spot - ma) / ma * 100) if ma else None
 
     rsi14 = rsi(closes, 14)

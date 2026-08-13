@@ -7,24 +7,23 @@ from moomoo import OptionType, RET_OK
 
 from bars import daily_closes
 from indicators import historical_vol
+from models import VolSummaryResponse
 from opend import quote_ctx
 from util import normalize, to_float, to_yf_ticker
 from vol_util import SNAPSHOT_CHUNK, nearest as _nearest, pick_expiry as _pick_expiry
 
 router = APIRouter()
 
-# ±25% brackets the 25Δ wings on normal-IV names while keeping the snapshot
-# batch small.
+# ±25% brackets the 25Δ wings while keeping the snapshot batch small.
 STRIKE_WINDOW = 0.25
 
 
-@router.get("/options/vol-summary")
+@router.get("/options/vol-summary", response_model=VolSummaryResponse)
 def vol_summary(
     symbol: str = Query(..., description="e.g. US.AAPL"),
     target_dte: int = Query(30, description="Expiry closest to N DTE for IV sampling"),
 ):
-    """All vol figures are decimals (0.32 = 32%), matching HV, so iv_hv_ratio is
-    directly comparable."""
+    """ATM IV, HV and 25Δ skew at the expiry nearest target_dte, all as decimals (0.32 = 32%)."""
     yf_ticker = to_yf_ticker(symbol)
     today = dt.date.today()
 
@@ -82,8 +81,7 @@ def vol_summary(
                     if isinstance(c, str):
                         snap_by_code[c] = s
 
-    # moomoo returns option_implied_volatility as a PERCENTAGE (32.5 = 32.5%).
-    # Divide by 100 so IV and HV share one scale.
+    # moomoo returns option_implied_volatility as a percentage (32.5 = 32.5%).
     calls: list[dict] = []
     puts: list[dict] = []
     for r in chain_rows:
@@ -112,7 +110,7 @@ def vol_summary(
     else:
         atm_iv = atm_iv_call if atm_iv_call is not None else atm_iv_put
 
-    # 25Δ risk reversal. Positive = downside protection bid up.
+    # 25Δ risk reversal: positive = downside protection bid up.
     p25 = _nearest(puts, "delta", -0.25)
     c25 = _nearest(calls, "delta", 0.25)
     skew_25d = (p25["iv"] - c25["iv"]) if (p25 and c25) else None

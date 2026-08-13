@@ -1,3 +1,5 @@
+// Client for moomoo's public news-search and community-feed endpoints.
+
 import type {
   CommentItem,
   CommentSentimentResult,
@@ -32,15 +34,18 @@ interface RawEnvelope<T> {
   data: T[];
 }
 
+// Removes HTML tags and collapses whitespace.
 function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
 
+// Coerces a vendor timestamp to an epoch number, 0 when unparseable.
 function asEpoch(t: string | number): number {
   const n = typeof t === "string" ? Number.parseInt(t, 10) : t;
   return Number.isFinite(n) ? n : 0;
 }
 
+// Issues a GET against the news service and parses the JSON envelope.
 async function call<T>(path: string, params: Record<string, string>): Promise<RawEnvelope<T>> {
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${BASE}${path}?${qs}`, {
@@ -51,6 +56,7 @@ async function call<T>(path: string, params: Record<string, string>): Promise<Ra
   return (await res.json()) as RawEnvelope<T>;
 }
 
+// Converts a raw news row into a NewsItem.
 function adaptNews(raw: RawNewsItem): NewsItem {
   return {
     id: raw.news_id,
@@ -61,6 +67,7 @@ function adaptNews(raw: RawNewsItem): NewsItem {
   };
 }
 
+/** Searches news for a keyword, newest first. */
 export async function searchNews(keyword: string, size = 10): Promise<NewsResult> {
   const r = await call<RawNewsItem>("/news_search", {
     keyword,
@@ -73,6 +80,7 @@ export async function searchNews(keyword: string, size = 10): Promise<NewsResult
   return { symbol: keyword, items: (r.data ?? []).map(adaptNews) };
 }
 
+// Converts a raw community-feed row into a CommentItem.
 function adaptFeed(raw: RawFeedItem): CommentItem {
   return {
     id: raw.id,
@@ -83,6 +91,7 @@ function adaptFeed(raw: RawFeedItem): CommentItem {
   };
 }
 
+/** Fetches recent community-feed posts for a keyword. */
 export async function getStockFeed(keyword: string, size = 30): Promise<CommentSentimentResult> {
   const r = await call<RawFeedItem>("/stock_feed", {
     keyword,
@@ -92,18 +101,7 @@ export async function getStockFeed(keyword: string, size = 30): Promise<CommentS
   return { symbol: keyword, posts: (r.data ?? []).map(adaptFeed) };
 }
 
-// Stage A of the peer read-through pipeline: fan out news_search across the
-// peer tickers (parallel — the endpoint is a CDN service, no throttling at this
-// scale), tag each item with its source peer, dedup by news_id. Pure HTTP +
-// merge — no LLM; the LLM relevance/clustering happens downstream in analyzeNews.
-// A failed peer is skipped, not fatal.
-//
-// Ordering is ROUND-ROBIN across peers, NOT global recency. A pure-recency
-// truncation used to starve a peer of its single most decision-relevant (but
-// not most recent) headline — e.g. "NVIDIA enters the PC market" landing one
-// slot past the cutoff while fresher fund-flow/PR noise from NVDA survived, so
-// the LLM saw only noise and dropped NVDA entirely. Round-robin guarantees each
-// peer's top items reach the model before any peer's deep tail.
+/** Fans news_search out across peer tickers and merges the results, skipping failed peers. */
 export async function collatePeerNews(
   peerTickers: string[],
   perPeer = 8,
@@ -113,8 +111,6 @@ export async function collatePeerNews(
     peerTickers.map((t) => searchNews(t, perPeer)),
   );
 
-  // Per-peer lists, deduped globally by news_id; each peer keeps its own
-  // recency order.
   const seen = new Set<string>();
   const lists: PeerNewsItem[][] = results.map((res, i) => {
     if (res.status !== "fulfilled") return [];
@@ -132,8 +128,7 @@ export async function collatePeerNews(
     return out;
   });
 
-  // Interleave: peer0[0], peer1[0], …, peer0[1], peer1[1], … so no peer's tail
-  // crowds out another peer's head.
+  // Round-robin, not global recency: a pure-recency cut lets one peer's tail crowd out another's head.
   const merged: PeerNewsItem[] = [];
   const depth = lists.reduce((m, l) => Math.max(m, l.length), 0);
   for (let d = 0; d < depth && merged.length < max; d++) {

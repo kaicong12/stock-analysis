@@ -1,5 +1,4 @@
-// Sentiment panel. Prompt mirrors the moomoo-comment-sentiment skill;
-// body lives in src/lib/gemini/panels/prompts/sentiment.ts.
+// Community-sentiment panel over the moomoo stock feed.
 
 import { genJson } from "../client";
 import type { CommentSentimentResult, PanelSummary } from "../../types";
@@ -14,6 +13,7 @@ import { SYSTEM } from "./prompts/sentiment";
 
 const SCHEMA = baseSchema(META_PROP, ["meta"]);
 
+/** Produces the sentiment panel from recent community posts. */
 export async function analyzeSentiment(
   input: CommentSentimentResult | null,
   ctx: PanelContext

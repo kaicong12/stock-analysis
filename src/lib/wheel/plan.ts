@@ -1,3 +1,5 @@
+// Fetches every wheel input and assembles the plan, deduping concurrent callers.
+
 import {
   getFundamentals,
   getPriceAction,
@@ -10,11 +12,11 @@ import { buildWheelPlan } from "./score";
 import { computeZone } from "./zone";
 import type { WheelPlan } from "./types";
 
-// Three callers per analysis at ~12 OpenD round-trips each; run concurrently on
-// one connection the chain leg fails intermittently and the plan comes back empty.
+// Concurrent runs must share one plan: OpenD drops chain requests when several hit one connection.
 const TTL_MS = 60_000;
 const inflight = new Map<string, { at: number; plan: Promise<WheelPlan> }>();
 
+/** Returns the wheel plan for a symbol, reusing an in-flight or recent build. */
 export function fetchWheelPlan(ticker: string, symbol: string): Promise<WheelPlan> {
   const hit = inflight.get(symbol);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.plan;
@@ -25,6 +27,7 @@ export function fetchWheelPlan(ticker: string, symbol: string): Promise<WheelPla
   return plan;
 }
 
+// Fetches the chain, regime, technicals, price action, fundamentals and FOMC dates in parallel.
 async function buildPlan(ticker: string, symbol: string): Promise<WheelPlan> {
   const [chain, regime, tech, priceAction, fundamentals, fomcDates] = await Promise.all([
     getWheelChain(symbol),

@@ -1,13 +1,5 @@
-// OpenRouter client. OpenRouter exposes an OpenAI-compatible /chat/completions
-// endpoint, so we hit it with raw fetch — no need for the openai SDK as a dep.
-//
-// We force JSON output via response_format=json_object and inject the JSON schema
-// into the system message as documentation. Strict schema enforcement varies by
-// model on OpenRouter (especially on :free / flash-lite tiers), so we rely on
-// application-side parsing + retries to isolate bad outputs: cheap models
-// occasionally prepend a stray char/prose (e.g. `H{ "direction": ... }`) or
-// return a transient 429/5xx. extractJson() salvages the former; the retry loop
-// covers the rest.
+// JSON-mode chat-completion client for OpenRouter's OpenAI-compatible endpoint.
+
 import { env } from "../env";
 
 export interface GenJsonOptions {
@@ -16,8 +8,7 @@ export interface GenJsonOptions {
   schema: Record<string, unknown>;
   temperature?: number;
   timeoutMs?: number;
-  // Total attempts including the first try. Default MAX_ATTEMPTS.
-  attempts?: number;
+  attempts?: number;  // total attempts including the first try
 }
 
 interface ChatResponse {
@@ -28,10 +19,7 @@ interface ChatResponse {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_ATTEMPTS = 3;
 
-// Error carrying whether the failure is worth retrying. Auth/quota-config (401/
-// 403) and malformed requests (400) are NOT retryable — they won't fix
-// themselves. Rate limits (429), provider 5xx, timeouts, empty content, and
-// unparseable JSON ARE retryable.
+// Error carrying whether the failure is worth retrying.
 class GenJsonError extends Error {
   retryable: boolean;
   constructor(message: string, retryable: boolean) {
@@ -41,13 +29,12 @@ class GenJsonError extends Error {
   }
 }
 
+// Removes a surrounding markdown code fence.
 function stripJsonFence(s: string): string {
   return s.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
 }
 
-// Salvage a JSON object from content that has stray leading/trailing characters
-// (the cheap-model `H{...}` failure) by slicing to the outermost braces. Leaves
-// well-formed content untouched.
+// Slices model content to its outermost braces, salvaging stray leading/trailing characters.
 function extractJson(s: string): string {
   const stripped = stripJsonFence(s);
   const first = stripped.indexOf("{");
@@ -57,6 +44,7 @@ function extractJson(s: string): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Performs one completion request and parses the JSON body out of the response.
 async function requestOnce<T>(sys: string, opts: GenJsonOptions): Promise<T> {
   const ctrl = new AbortController();
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -116,6 +104,7 @@ async function requestOnce<T>(sys: string, opts: GenJsonOptions): Promise<T> {
   }
 }
 
+/** Requests a JSON object matching the given schema, retrying retryable failures. */
 export async function genJson<T>(opts: GenJsonOptions): Promise<T> {
   const schemaText = JSON.stringify(opts.schema, null, 2);
   const sys = `${opts.systemInstruction}
@@ -139,7 +128,6 @@ No prose, no markdown fences, no commentary — only the JSON object.`;
       lastErr = e;
       const retryable = e instanceof GenJsonError ? e.retryable : false;
       if (!retryable || attempt === maxAttempts) throw e;
-      // Exponential backoff with a little headroom: 400ms, 800ms, ...
       await sleep(400 * 2 ** (attempt - 1));
     }
   }

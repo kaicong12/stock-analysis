@@ -4,12 +4,14 @@ import datetime as dt
 
 from fastapi import APIRouter, HTTPException, Query
 
+from models import FundamentalsResponse
 from util import to_float, to_yf_ticker
 
 router = APIRouter()
 
 
 def _calendar_dict(ticker) -> dict:
+    """yfinance's calendar as a plain dict."""
     cal = ticker.calendar
     if hasattr(cal, "to_dict"):
         return cal.to_dict()
@@ -28,8 +30,9 @@ def _first_date(entry) -> str | None:
     return None
 
 
-@router.get("/fundamentals")
+@router.get("/fundamentals", response_model=FundamentalsResponse)
 def fundamentals(symbol: str = Query(..., description="e.g. US.AAPL")):
+    """Valuation, growth, margin, balance-sheet and analyst figures for one symbol."""
     import yfinance as yf  # lazy: keeps cold start off unrelated routes
 
     yf_ticker = to_yf_ticker(symbol)
@@ -46,8 +49,7 @@ def fundamentals(symbol: str = Query(..., description="e.g. US.AAPL")):
     except Exception:
         next_earnings = None
 
-    # Ex-div drives early-assignment risk on short calls. info carries an epoch;
-    # the calendar is the fallback.
+    # info carries an epoch; the calendar is the fallback.
     ex_div: str | None = None
     try:
         raw_ex = info.get("exDividendDate")

@@ -1,7 +1,4 @@
 // System prompt for the community-sentiment panel.
-// Mirrors the moomoo-comment-sentiment skill (~/.claude/skills/moomoo-comment-sentiment/SKILL.md).
-// Source-of-truth sections: Sentiment Classification Rules, Low-Quality Filtering Rules,
-// Hot Opinion Extraction Rules, User-Facing Output Templates.
 
 export const SYSTEM = `You are the community-sentiment desk analyst running the moomoo-comment-sentiment skill against a single ticker.
 

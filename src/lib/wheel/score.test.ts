@@ -1,9 +1,12 @@
+// Tests for the wheel scoring pipeline: yields, the breakdown guard and plan assembly.
+
 import { describe, expect, it } from "vitest";
 import type { PriceAction } from "../types";
 import { annualizedYield, breakdownState, buildWheelPlan } from "./score";
 import type { ChainStrike, WheelChain } from "./types";
 import { computeZone } from "./zone";
 
+// Builds a chain strike with sane defaults.
 function strike(over: Partial<ChainStrike> & { strike: number }): ChainStrike {
   return {
     delta: -0.2,

@@ -1,6 +1,4 @@
-// The band of prices worth owning this name at, bracketed from three anchors
-// that already arrive on every run: the street's bear case, the long-term trend
-// floor, and where buyers actually showed up.
+// The acquisition zone: the band of prices worth owning a name at, and where a strike sits in it.
 
 import type { AcquisitionZone, ZonePosition } from "./types";
 
@@ -10,10 +8,12 @@ interface ZoneInputs {
   support: number | null;
 }
 
+// Narrows a value to a usable positive, finite number.
 function usable(x: number | null | undefined): x is number {
   return typeof x === "number" && Number.isFinite(x) && x > 0;
 }
 
+/** Brackets the zone from its anchors, or null when fewer than two are usable. */
 export function computeZone(inputs: ZoneInputs): AcquisitionZone | null {
   const anchors = {
     analystTargetLow: usable(inputs.analystTargetLow) ? inputs.analystTargetLow : null,
@@ -21,7 +21,6 @@ export function computeZone(inputs: ZoneInputs): AcquisitionZone | null {
     support: usable(inputs.support) ? inputs.support : null,
   };
   const values = Object.values(anchors).filter(usable);
-  // A band from one anchor is just that number, dressed up as a range.
   if (values.length < 2) return null;
 
   return {
@@ -32,7 +31,7 @@ export function computeZone(inputs: ZoneInputs): AcquisitionZone | null {
   };
 }
 
-// A put strike is a price you may be forced to BUY at, so cheaper is better.
+/** Classifies a put strike against the zone — a price you may be forced to buy at, so cheaper is better. */
 export function classifyPutStrike(strike: number, zone: AcquisitionZone | null): ZonePosition {
   if (!zone) return "unknown";
   if (strike < zone.low) return "good";
@@ -40,7 +39,7 @@ export function classifyPutStrike(strike: number, zone: AcquisitionZone | null):
   return "rich";
 }
 
-// A call strike is a price you may be forced to SELL at, so the logic inverts.
+/** Classifies a call strike against the zone — a price you may be forced to sell at, so the logic inverts. */
 export function classifyCallStrike(strike: number, zone: AcquisitionZone | null): ZonePosition {
   if (!zone) return "unknown";
   if (strike > zone.high) return "good";

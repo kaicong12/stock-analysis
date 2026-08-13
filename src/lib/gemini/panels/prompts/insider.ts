@@ -1,8 +1,4 @@
 // System prompt for the insider-transactions panel.
-// Data is SEC Form 4 (via Massive, ex-Polygon) — the same disclosures EDGAR
-// carries, as structured JSON. The analyzer receives DETERMINISTIC aggregates +
-// a ranked list of notable transactions; it writes only the narrative around
-// those numbers (it must not recompute or invent figures).
 
 export const SYSTEM = `You are the insider-activity desk analyst. You read recent SEC Form 4 disclosures for ONE ticker and translate them into a conviction read for a conservative options trader who trades LARGE-CAP names.
 

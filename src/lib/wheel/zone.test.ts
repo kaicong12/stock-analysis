@@ -1,3 +1,5 @@
+// Tests for the acquisition zone and its put/call strike classifiers.
+
 import { describe, expect, it } from "vitest";
 import { classifyCallStrike, classifyPutStrike, computeZone } from "./zone";
 
@@ -53,7 +55,6 @@ describe("classifyPutStrike", () => {
 describe("classifyCallStrike", () => {
   const zone = computeZone(ANCHORS)!;
 
-  // Inverted: a call strike is a SALE price, so above the zone is the good one.
   it("inverts the put logic", () => {
     expect(classifyCallStrike(165, zone)).toBe("good");
     expect(classifyCallStrike(155, zone)).toBe("fair");

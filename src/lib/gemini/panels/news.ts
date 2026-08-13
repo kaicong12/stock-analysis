@@ -1,15 +1,11 @@
-// News Flow panel. Self-signal is a Morningstar research report (OpenD), which
-// replaced the recency-sorted moomoo news feed. The peer read-through sub-block
-// is unchanged and still rides on this panel. Prompt body lives in
-// src/lib/gemini/panels/prompts/news.ts.
+// News Flow panel: a Morningstar research report as the self-signal, plus a peer read-through block.
 
 import { genJson } from "../client";
 import type { MorningstarReport, PanelSummary, PeerNewsItem } from "../../types";
 import { baseSchema, emptyEvidencePanel, relAge, type PanelContext } from "./_shared";
 import { SYSTEM } from "./prompts/news";
 
-// Peer read-through sub-block. Kept strictly separate from the self fields
-// (direction/headline/bullets) — see the HARD SEPARATION RULE in the prompt.
+// Peer read-through sub-block, kept strictly separate from the self fields.
 const READTHROUGH_PROP = {
   readThrough: {
     type: "array",
@@ -30,11 +26,9 @@ const READTHROUGH_PROP = {
   },
 };
 
-// The LLM writes direction/headline/conclusion/bullets/readThrough. evidence
-// (the report PDF link) and meta (the FVE/rating/moat stat row) are attached
-// deterministically in code — exact numbers, no hallucination.
 const SCHEMA = baseSchema(READTHROUGH_PROP, ["readThrough"]);
 
+// Reduces the report to the fields the prompt reads.
 function compressReport(r: MorningstarReport) {
   return {
     starRating: r.starRating,
@@ -56,7 +50,7 @@ function compressReport(r: MorningstarReport) {
   };
 }
 
-// Deterministic stat row + PDF evidence link (attached post-LLM for exactness).
+// Builds the stat row and PDF evidence link from the report's exact figures.
 function buildAttachments(
   report: MorningstarReport,
   ticker: string,
@@ -83,14 +77,13 @@ function buildAttachments(
   };
 }
 
+/** Produces the News Flow panel from the Morningstar report and any peer news. */
 export async function analyzeNews(
   report: MorningstarReport | null,
   ctx: PanelContext,
   peerNews: PeerNewsItem[] = [],
 ): Promise<PanelSummary> {
   const hasSelf = !!report && report.available;
-  // Only bail when there is nothing at all; peer news alone can still produce a
-  // read-through block (self fields fall back to "n/a"/empty in that case).
   if (!hasSelf && peerNews.length === 0) {
     return emptyEvidencePanel("No Morningstar report available.");
   }
@@ -126,8 +119,6 @@ export async function analyzeNews(
     temperature: 0.3,
   });
 
-  // Attach the deterministic stat row + PDF link only when we actually have a
-  // report (peer-only runs keep empty evidence/meta).
   if (hasSelf) {
     return { ...summary, ...buildAttachments(report!, ctx.ticker) };
   }

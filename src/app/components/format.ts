@@ -1,5 +1,6 @@
-// Number / currency / time formatting helpers shared across the dashboard.
+// Number, currency and time formatting helpers shared across the dashboard.
 
+/** Formats a number as abbreviated currency for the given ISO code. */
 export function fmtMoney(n: number, cur: string): string {
   if (!Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
@@ -12,17 +13,20 @@ export function fmtMoney(n: number, cur: string): string {
   return symbol + value;
 }
 
+/** Formats currency with an explicit plus sign on positives. */
 export function fmtSigned(n: number, cur: string): string {
   if (!Number.isFinite(n)) return "—";
   const sign = n > 0 ? "+" : "";
   return sign + fmtMoney(n, cur);
 }
 
+/** Formats a number to at most two decimals, or an em dash when not finite. */
 export function fmtNum(n: number): string {
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
+/** Renders an epoch-seconds timestamp as a relative age, falling back to a date. */
 export function relTime(epochSeconds: number): string {
   if (!epochSeconds) return "";
   const ms = epochSeconds * 1000;

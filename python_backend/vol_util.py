@@ -7,6 +7,7 @@ SNAPSHOT_CHUNK = 200
 
 
 def nearest(rows: list[dict], key: str, target: float) -> dict | None:
+    """Row whose `key` is closest to `target`."""
     return min(rows, key=lambda r: abs(r[key] - target)) if rows else None
 
 
@@ -32,8 +33,7 @@ def pick_expiry(exp_rows: list[dict], today: dt.date, target_dte: int):
 
 
 def pick_expiries(exp_rows: list[dict], today: dt.date, target_dtes: list[int]):
-    """One expiry per target DTE, de-duplicated and date-ordered. Nearby targets
-    often resolve to the same contract, so collapsing them avoids a repeat fetch."""
+    """One expiry per target DTE, de-duplicated and date-ordered."""
     seen: dict[str, dt.date] = {}
     for target in target_dtes:
         chosen = pick_expiry(exp_rows, today, target)

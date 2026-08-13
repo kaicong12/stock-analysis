@@ -5,6 +5,7 @@ from statistics import stdev
 
 
 def sma(closes: list[float], window: int) -> float | None:
+    """Simple moving average over the last `window` closes."""
     if len(closes) < window:
         return None
     return sum(closes[-window:]) / window
@@ -24,11 +25,7 @@ def ema(values: list[float], span: int) -> list[float]:
 
 
 def historical_vol(closes: list[float], window: int) -> float | None:
-    """Annualized HV from close-to-close log returns.
-
-    Trading-day basis annualized by sqrt(252), sample stddev — the CME/CBOE
-    realized-vol convention. Returns a decimal (0.27 = 27%).
-    """
+    """Annualized HV (sqrt(252), sample stddev) from close-to-close log returns, as a decimal."""
     if len(closes) < window + 1:
         return None
     sub = closes[-(window + 1):]
@@ -43,8 +40,7 @@ def historical_vol(closes: list[float], window: int) -> float | None:
 
 
 def historical_vol_series(closes: list[float], window: int = 30) -> list[float]:
-    """HV at every bar with a full `window` behind it, ascending. Same convention
-    as historical_vol, so its last element equals historical_vol exactly."""
+    """HV at every full `window`, ascending; its last element equals historical_vol exactly."""
     if len(closes) < window + 1:
         return []
     returns = [
@@ -59,8 +55,7 @@ def historical_vol_series(closes: list[float], window: int = 30) -> list[float]:
 
 
 def percentile_rank(series: list[float], value: float) -> float | None:
-    """Where `value` sits within `series`, 0-100. Ties count as half, so a flat
-    series reads 50 rather than 0 or 100."""
+    """Where `value` sits within `series`, 0-100, counting ties as half."""
     if not series:
         return None
     below = sum(1 for s in series if s < value)
@@ -75,8 +70,7 @@ def rsi(closes: list[float], period: int = 14) -> float | None:
 
 
 def rsi_series(closes: list[float], period: int = 14) -> list[float | None]:
-    """Wilder RSI at every bar, index-aligned to `closes` so divergence
-    detection can read RSI at a price pivot's bar index."""
+    """Wilder RSI at every bar, index-aligned to `closes`."""
     n = len(closes)
     out: list[float | None] = [None] * n
     if n < period + 1:
@@ -86,6 +80,7 @@ def rsi_series(closes: list[float], period: int = 14) -> list[float | None]:
     losses = [max(closes[i - 1] - closes[i], 0.0) for i in range(1, n)]
 
     def value(avg_gain: float, avg_loss: float) -> float:
+        """RSI from a smoothed average gain and loss."""
         if avg_loss == 0:
             return 100.0
         return 100 - 100 / (1 + avg_gain / avg_loss)
@@ -110,8 +105,7 @@ def macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9):
 
 
 def bbands(closes: list[float], window: int = 20, k: float = 2.0):
-    """(upper, mid, lower, %B) at the latest bar. %B > 1 is above the upper
-    band, < 0 below the lower. Population stddev."""
+    """(upper, mid, lower, %B) at the latest bar, on population stddev."""
     if len(closes) < window:
         return None, None, None, None
     w = closes[-window:]
@@ -123,12 +117,7 @@ def bbands(closes: list[float], window: int = 20, k: float = 2.0):
 
 
 def adx(highs: list[float], lows: list[float], closes: list[float], period: int = 14):
-    """Wilder's ADX plus the latest +DI / -DI.
-
-    ADX is trend STRENGTH irrespective of direction; the DIs carry direction.
-    The verdict's regime gate keys off both: high ADX means a trend you should
-    not fade on an oscillator reading.
-    """
+    """Wilder's ADX (trend strength) plus the latest +DI / -DI (direction)."""
     n = len(closes)
     if n < 2 * period + 1:
         return None, None, None
@@ -199,8 +188,7 @@ def run_length(closes: list[float], direction: int) -> int:
 
 
 def pivot_indices(values: list[float | None], left: int, right: int, kind: str) -> list[int]:
-    """Local extrema indices. A bar needs `right` confirming bars after it, so
-    the newest detectable pivot is always `right` bars old."""
+    """Local extrema indices; the newest detectable pivot is always `right` bars old."""
     out: list[int] = []
     n = len(values)
     for i in range(left, n - right):
@@ -219,12 +207,7 @@ def pivot_indices(values: list[float | None], left: int, right: int, kind: str) 
 
 def rsi_divergence(closes: list[float], rsi_vals: list[float | None],
                    lookback: int = 60, left: int = 3, right: int = 3) -> str:
-    """Regular RSI divergence: "bearish" (higher price high, lower RSI high),
-    "bullish" (lower price low, higher RSI low), or "none".
-
-    This is the actual exhaustion tell — a bare overbought/oversold reading
-    means nothing on its own.
-    """
+    """Regular RSI/price divergence: "bearish", "bullish", or "none"."""
     n = len(closes)
     if n < lookback // 2:
         return "none"
@@ -249,12 +232,7 @@ def rsi_divergence(closes: list[float], rsi_vals: list[float | None],
 
 def regime(adx_val: float | None, plus_di: float | None, minus_di: float | None,
            spot: float, sma50: float | None, sma200: float | None) -> str:
-    """strong_uptrend | uptrend | range | downtrend | strong_downtrend | n/a.
-
-    ADX sets strength; the DI cross and the 50/200 stack vote on direction.
-    Tells the verdict whether an oscillator extreme is actionable (range) or a
-    trap to fade (trend).
-    """
+    """Trend regime: strong_uptrend | uptrend | range | downtrend | strong_downtrend | n/a."""
     if adx_val is None:
         return "n/a"
 

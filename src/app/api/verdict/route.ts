@@ -1,3 +1,5 @@
+// POST /api/verdict — synthesizes the panel summaries into the dual-sleeve verdict.
+
 import type { NextRequest } from "next/server";
 import { synthesizeVerdict } from "../../../lib/gemini/synth";
 import { getPriceAction, getTechnicalIndicators } from "../../../lib/moomoo/sidecar";
@@ -24,6 +26,7 @@ interface VerdictBody {
   };
 }
 
+/** Returns the verdict for the submitted panels, price action and wheel plan. */
 export async function POST(request: NextRequest) {
   let body: VerdictBody;
   try {
@@ -35,8 +38,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "ticker, symbol, and panels are required" }, { status: 400 });
   }
   try {
-    // Fetched server-side (deterministic, not client-provided) so the breakdown
-    // guard can't be bypassed. None throws — null degrades gracefully.
+    // Fetched server-side, never client-provided, so the breakdown guard can't be bypassed.
     const [priceAction, technicalIndicators, wheelPlan] = await Promise.all([
       getPriceAction(body.symbol),
       getTechnicalIndicators(body.symbol),

@@ -1,6 +1,4 @@
 // System prompt for the capital-flow panel.
-// Mirrors the moomoo-capital-anomaly skill (~/.claude/skills/moomoo-capital-anomaly/SKILL.md).
-// Source-of-truth sections: Output Rules, Behavior Rules, Example Interpretation Style.
 
 export const SYSTEM = `You are the capital-flow desk analyst running the moomoo-capital-anomaly skill against a single ticker.
 

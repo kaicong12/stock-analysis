@@ -1,8 +1,4 @@
-"""SQLite bar cache.
-
-The sidecar owns this schema outright — Next.js no longer opens the database,
-so nothing else sets the pragmas or creates the tables.
-"""
+"""SQLite cache of daily closes and OHLCV bars."""
 
 import sqlite3
 import threading
@@ -53,8 +49,6 @@ def init() -> None:
             return
         DB_FILE.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(DB_FILE, timeout=5) as conn:
-            # WAL persists in the file header, so this only matters on a fresh
-            # DB. synchronous=NORMAL is safe here: the bars are re-fetchable.
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = NORMAL")
             conn.executescript(_SCHEMA)
@@ -64,9 +58,9 @@ def init() -> None:
 
 @contextmanager
 def db():
+    """Yield a connection to the initialized cache database."""
     init()
-    # timeout= sets busy_timeout so a concurrent writer waits instead of
-    # failing outright with SQLITE_BUSY.
+    # timeout= sets busy_timeout, so a concurrent writer waits instead of SQLITE_BUSY.
     conn = sqlite3.connect(DB_FILE, timeout=5)
     try:
         yield conn

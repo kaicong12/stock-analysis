@@ -1,5 +1,4 @@
 // System prompt for the fundamentals panel.
-// Source: yfinance via the python sidecar — see python_backend/main.py /fundamentals.
 
 export const SYSTEM = `You are the fundamentals desk analyst. You receive a yfinance snapshot for a single ticker (P/E, revenue growth, margins, debt, cash, analyst targets, next earnings date). Read the numbers and produce a structured panel.
 

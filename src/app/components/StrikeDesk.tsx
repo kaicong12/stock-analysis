@@ -1,3 +1,5 @@
+// Strike Desk — the arithmetic wheel view: event runway, price ladder, strike tables.
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -19,16 +21,19 @@ const NOTE = "text-[11px] leading-[1.5] text-on-surface-variant";
 const CHIP =
   "inline-flex items-center rounded border border-outline-variant bg-surface-high px-2 py-0.5 text-[11px] font-medium text-on-surface-variant tabular-nums";
 
+// Formats a fraction as a percentage, or an em dash when absent.
 const pct = (x: number | null, d = 1): string => (x === null ? "—" : `${(x * 100).toFixed(d)}%`);
 
 const ZONE_LABEL: Record<ZonePosition, string> = { good: "good", fair: "fair", rich: "rich", unknown: "—" };
 
+// Maps an acquisition-zone position to its text colour.
 function zoneCls(z: ZonePosition): string {
   if (z === "good") return "text-bullish";
   if (z === "rich") return "text-bearish";
   return "";
 }
 
+// Formats an ISO date as an uppercase day-and-month label in UTC.
 function shortDate(iso: string): string {
   const m = /(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   if (!m) return iso;
@@ -43,6 +48,7 @@ interface Scale {
   at: (v: number) => number;
 }
 
+// Builds a padded value-to-percent scale spanning the given anchors.
 function makeScale(values: (number | null)[]): Scale | null {
   const vals = values.filter((v): v is number => v !== null && Number.isFinite(v) && v > 0);
   if (vals.length < 2) return null;
@@ -55,12 +61,10 @@ function makeScale(values: (number | null)[]): Scale | null {
   return { min, max, at: (v) => ((v - min) / (max - min)) * 100 };
 }
 
+// Returns round tick values across the range, aiming for about six divisions.
 function axisTicks(min: number, max: number): number[] {
   const span = max - min;
   if (!(span > 0)) return [];
-  // Snapping the raw span/6 to a single decade jumps to a step twice as coarse
-  // as it needs to be right after a decade boundary, so score every candidate
-  // across three decades on how close it lands to six divisions.
   const mag = 10 ** Math.floor(Math.log10(span / 6));
   const step = [0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50]
     .map((m) => m * mag)
@@ -70,13 +74,14 @@ function axisTicks(min: number, max: number): number[] {
   return out;
 }
 
-// Keeps a label inside the plot instead of bleeding past either edge.
+// Positions a label at a percentage, keeping it inside the plot at either edge.
 function labelPos(p: number, gap = 0): React.CSSProperties {
   if (p < 12) return { left: `${p}%`, marginLeft: gap };
   if (p > 88) return { left: `${p}%`, transform: "translateX(-100%)", marginLeft: -gap };
   return { left: `${p}%`, transform: "translateX(-50%)" };
 }
 
+// Wraps its children in a hoverable, focusable tooltip trigger.
 function Hint({ tip, children }: { tip: string; children: React.ReactNode }) {
   return (
     <Tooltip>
@@ -90,10 +95,12 @@ function Hint({ tip, children }: { tip: string; children: React.ReactNode }) {
   );
 }
 
+// Renders a section's caps heading.
 function SectionHead({ children }: { children: React.ReactNode }) {
   return <div className={cn(CAPS, "mb-3 leading-none")}>{children}</div>;
 }
 
+// Renders a warning note, tinted red when the entry is blocked.
 function Callout({ blocked, children }: { blocked?: boolean; children: React.ReactNode }) {
   return (
     <div
@@ -107,6 +114,7 @@ function Callout({ blocked, children }: { blocked?: boolean; children: React.Rea
   );
 }
 
+// Plots expiries, earnings, ex-dividend and FOMC dates on a 90-day timeline.
 function EventRunway({ plan, expiries }: { plan: WheelPlan; expiries: ScoredExpiry[] }) {
   const at = (iso: string | null): number | null => {
     const d = daysUntilISO(iso);
@@ -188,6 +196,7 @@ function EventRunway({ plan, expiries }: { plan: WheelPlan; expiries: ScoredExpi
 
 const LADDER_H = 236;
 
+// Plots spot, the acquisition zone, the expected move, chart levels and each strike on one axis.
 function PriceLadder({
   plan,
   put,
@@ -378,6 +387,7 @@ function PriceLadder({
   );
 }
 
+// Pairs a swatch with its ladder legend caption.
 function LegendItem({ swatch, children }: { swatch: React.ReactNode; children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -414,6 +424,7 @@ const TIPS = {
 const CELL = "px-0 py-[5px] pr-2 text-right align-middle first:text-left";
 const DIVIDER = "border-l border-surface-highest pl-3";
 
+// Renders a strike-table header cell with its explanatory tooltip.
 function Th({ tip, children, className }: { tip: string; children: React.ReactNode; className?: string }) {
   return (
     <TableHead
@@ -427,6 +438,7 @@ function Th({ tip, children, className }: { tip: string; children: React.ReactNo
   );
 }
 
+// Renders one expiry's strikes for a side, or why there are none to show.
 function StrikeTable({ expiry, side, showPe }: { expiry: ScoredExpiry; side: Side; showPe: boolean }) {
   if (expiry.excluded) return <div className={NOTE}>Skipped — {expiry.excluded}.</div>;
   if (!expiry.rows.length) return <div className={NOTE}>No strikes beyond the band.</div>;
@@ -460,6 +472,7 @@ function StrikeTable({ expiry, side, showPe }: { expiry: ScoredExpiry; side: Sid
   );
 }
 
+// Renders one scored strike, highlighted when it sits in the good zone.
 function StrikeRow({ r, showPe }: { r: ScoredStrike; showPe: boolean }) {
   const good = r.zonePos === "good";
   return (
@@ -484,6 +497,7 @@ function StrikeRow({ r, showPe }: { r: ScoredStrike; showPe: boolean }) {
   );
 }
 
+// Switches the desk between the put and call legs.
 function SideToggle({ side, onChange }: { side: Side; onChange: (s: Side) => void }) {
   const opts: { key: Side; label: string }[] = [
     { key: "put", label: "Cash-secured puts" },
@@ -510,6 +524,7 @@ function SideToggle({ side, onChange }: { side: Side; onChange: (s: Side) => voi
   );
 }
 
+// Renders one expiry tab: its ladder, the side toggle, and the strike table.
 function ExpiryPanel({ plan, put, call, side, onSide }: {
   plan: WheelPlan;
   put: ScoredExpiry;
@@ -551,6 +566,7 @@ function ExpiryPanel({ plan, put, call, side, onSide }: {
   );
 }
 
+/** Fetches the wheel plan for a symbol and renders the desk. */
 export function StrikeDesk({ symbol, ticker }: { symbol: string; ticker: string }) {
   const [plan, setPlan] = useState<WheelPlan | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -578,6 +594,7 @@ export function StrikeDesk({ symbol, ticker }: { symbol: string; ticker: string 
   return <StrikeDeskView plan={plan} ticker={ticker} state={state} />;
 }
 
+/** Renders the desk from an already-fetched plan: header chips, runway, expiry tabs. */
 export function StrikeDeskView({
   plan,
   ticker,

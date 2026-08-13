@@ -1,3 +1,5 @@
+// POST /api/panel/[name] — runs one analysis panel for a ticker.
+
 import type { NextRequest } from "next/server";
 import { PANEL_KEYS, type PanelKey } from "../../../../lib/types";
 import { panelError, runPanel } from "../../../../lib/gemini/runPanel";
@@ -11,6 +13,7 @@ interface PanelBody {
   ticker?: string;
 }
 
+/** Validates the panel name and ticker, then returns that panel's summary. */
 export async function POST(request: NextRequest, ctx: { params: Promise<{ name: string }> }) {
   const { name } = await ctx.params;
   if (!(PANEL_KEYS as readonly string[]).includes(name)) {

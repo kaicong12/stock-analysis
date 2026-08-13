@@ -1,3 +1,5 @@
+// Scores an option chain into the wheel plan's put and call strike tables.
+
 import { daysUntilISO } from "../date";
 import type { PriceAction } from "../types";
 import { classifyCallStrike, classifyPutStrike } from "./zone";
@@ -14,7 +16,7 @@ import type {
 
 const MAX_ROWS = 8;
 
-// basis = the capital the leg commits: strike for a put, spot for a covered call.
+/** Annualizes a credit against the capital the leg commits: strike for a put, spot for a covered call. */
 export function annualizedYield(mid: number, basis: number, dte: number): number | null {
   if (!(mid > 0) || !(basis > 0) || !(dte > 0)) return null;
   return Number((((mid / basis) * (365 / dte)) * 100).toFixed(2));
@@ -31,8 +33,7 @@ interface ScoreContext {
   forwardEps: number | null;
 }
 
-// ATM IV of the expiry itself, so the expected move matches the contract being
-// scored rather than a generic 30-day sample.
+// Returns this expiry's own ATM IV, taken from the strike nearest spot.
 function atmIvOf(expiry: ChainExpiry, spot: number): number | null {
   const legs = [...expiry.puts, ...expiry.calls].filter((r) => r.iv !== null && r.iv > 0);
   if (!legs.length) return null;
@@ -42,6 +43,7 @@ function atmIvOf(expiry: ChainExpiry, spot: number): number | null {
   return nearest.iv;
 }
 
+// Scores one side of an expiry, keeping only strikes beyond the expected-move band.
 function scoreRows(
   rows: ChainStrike[],
   dte: number,
@@ -82,11 +84,13 @@ function scoreRows(
   return scored.slice(0, MAX_ROWS);
 }
 
+// Reports whether an ISO date falls between today and the expiry.
 function dateInWindow(iso: string | null, dte: number): boolean {
   const days = daysUntilISO(iso);
   return days !== null && days >= 0 && days <= dte;
 }
 
+// Scores one expiry for one leg, marking its events and dropping it when earnings land inside.
 function scoreExpiry(expiry: ChainExpiry, side: "put" | "call", ctx: ScoreContext): ScoredExpiry {
   const atmIv = atmIvOf(expiry, ctx.spot);
   const move = atmIv !== null && expiry.dte > 0
@@ -110,8 +114,7 @@ function scoreExpiry(expiry: ChainExpiry, side: "put" | "call", ctx: ScoreContex
     earningsInWindow,
     // Ex-div only threatens a short call, via early exercise to capture the div.
     exDivInWindow: side === "call" && dateInWindow(ctx.exDividendDate, expiry.dte),
-    // The FOMC meets roughly every 6 weeks, so blocking on it would empty every
-    // 30-45 DTE expiry. Flagged for the runway to draw; never excluded.
+    // Flagged, never excluded: the Fed meets every ~6 weeks, so a veto would empty every 30-45 DTE expiry.
     fomcInWindow: ctx.fomcDates.some((d) => dateInWindow(d, expiry.dte)),
     excluded,
     rows: excluded
@@ -120,8 +123,7 @@ function scoreExpiry(expiry: ChainExpiry, side: "put" | "call", ctx: ScoreContex
   };
 }
 
-// Softened from the old hard veto: an investor who wants the shares is partly
-// buying the dip, so mild warns and only severe (thesis damage) blocks.
+/** Turns a price-action breakdown into a warning, blocking only on a severe one. */
 export function breakdownState(pa: PriceAction | null): { warning: string | null; blocked: boolean } {
   if (!pa || pa.signal !== "breakdown") return { warning: null, blocked: false };
   const why = pa.reasons.slice(0, 3).join("; ") || "confirmed downside breakdown";
@@ -155,6 +157,7 @@ export interface BuildPlanInput {
   forwardEps: number | null;
 }
 
+/** Assembles the full wheel plan: zone, regime, events, levels and both scored legs. */
 export function buildWheelPlan(input: BuildPlanInput): WheelPlan {
   const { warning, blocked } = breakdownState(input.priceAction);
   const spot = input.chain?.spot ?? null;

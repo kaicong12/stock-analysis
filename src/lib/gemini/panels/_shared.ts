@@ -1,3 +1,5 @@
+// Shared panel plumbing: response-schema fragments, empty-panel fallbacks and small formatters.
+
 import type { CommentSentimentResult, PanelSummary } from "../../types";
 
 export interface PanelContext {
@@ -14,6 +16,7 @@ const BASE_PROPS = {
   bullets: { type: "array", items: { type: "string" } },
 };
 
+/** Builds the panel response schema, merging in any panel-specific properties. */
 export function baseSchema(
   extraProps: Record<string, unknown> = {},
   extraRequired: string[] = []
@@ -53,6 +56,7 @@ export const META_PROP = {
   },
 };
 
+/** Formats an epoch-seconds timestamp as a relative age, e.g. "3h ago". */
 export function relAge(epochSeconds: number, nowMs: number): string {
   if (!epochSeconds) return "unknown";
   const diff = nowMs - epochSeconds * 1000;
@@ -64,6 +68,7 @@ export function relAge(epochSeconds: number, nowMs: number): string {
   return `${d}d ago`;
 }
 
+/** Trims a community feed to the newest posts in the compact shape the prompt reads. */
 export function compressFeed(input: CommentSentimentResult, max: number, nowMs: number) {
   return input.posts.slice(0, max).map((p) => ({
     title: p.title ?? "",
@@ -72,6 +77,7 @@ export function compressFeed(input: CommentSentimentResult, max: number, nowMs: 
   }));
 }
 
+/** Builds the no-data panel summary. */
 export function emptyPanel(headline: string): PanelSummary {
   return {
     headline,
@@ -81,10 +87,12 @@ export function emptyPanel(headline: string): PanelSummary {
   };
 }
 
+/** Builds the no-data panel summary for panels that render an evidence list. */
 export function emptyEvidencePanel(headline: string): PanelSummary {
   return { ...emptyPanel(headline), evidence: [] };
 }
 
+/** Builds the no-data sentiment panel summary, with its stat row blanked out. */
 export function emptySentimentPanel(): PanelSummary {
   return {
     ...emptyPanel("No community discussion available."),
