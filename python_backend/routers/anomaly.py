@@ -1,37 +1,30 @@
-"""moomoo anomaly feeds (capital / technical / derivatives).
-
-A request bundling several dimensions fails entirely if ANY one errors, and
-moomoo returns -12301 (empty payload) for a number of dimensions on every
-symbol we've tested — so a full scan always came back blank. Workaround: query
-the working dimensions one at a time and merge the successes. To re-enable a
-dimension once moomoo fixes it, just add it back to the list; a still-broken
-entry degrades gracefully instead of blanking the panel.
-"""
+"""moomoo anomaly feeds (capital / technical / derivatives)."""
 
 from fastapi import APIRouter, HTTPException, Query
 from moomoo import RET_OK
 
+from models import AnomalyResponse
 from opend import quote_ctx
 from util import normalize, split_csv
 
 router = APIRouter(prefix="/anomaly")
 
+# A bundled request fails entirely if any one dimension errors, so each is queried alone.
 FINANCIAL_DIMENSIONS: list[tuple[str, str]] = [
     ("funds_distribution", "Funds Distribution (资金分布)"),
     ("funds_broker", "Buy/Sell Brokers (买卖经纪商)"),
-    # Broken (-12301): funds_flow, short_sell_number, short_sell_ratio,
-    # short_sell_number_and_ratio.
+    # Broken (-12301): funds_flow, short_sell_number/ratio/number_and_ratio.
 ]
 
 DERIVATIVE_DIMENSIONS: list[tuple[str, str]] = [
     ("option_unusual", "Unusual Options Trades (期权大单)"),
-    # Broken (-12301): option_volatility, option_volume_price, option_sentiment,
-    # option_comprehensive. warrant_* are HK-only CBBC concepts, omitted.
+    # Broken (-12301): option_volatility/volume_price/sentiment/comprehensive; warrant_* is HK-only.
 ]
 
 
 def _call(method_name: str, symbol: str, time_range: int, dims: list[str] | None,
           language_id: int, dim_kwarg: str = "analysis_dimensions") -> dict:
+    """Query one anomaly method for all requested dimensions at once."""
     with quote_ctx() as ctx:
         method = getattr(ctx, method_name)
         ret, data = method(symbol, time_range=time_range,
@@ -55,9 +48,7 @@ def _dim_succeeded(err_code) -> bool:
 
 def _merge_dimensions(method_name: str, symbol: str, time_range: int,
                       language_id: int, dimensions: list[tuple[str, str]]) -> dict:
-    """Query each dimension separately and merge the successes. Mirrors _call's
-    envelope so the TS caller keeps working unchanged; per_dimension is a
-    diagnostic map of which dimensions errored."""
+    """Query each dimension separately and merge the successes into _call's envelope."""
     sections: list[str] = []
     per_dimension: dict[str, dict] = {}
     time_range_label = ""
@@ -91,7 +82,6 @@ def _merge_dimensions(method_name: str, symbol: str, time_range: int,
     elif any_succeeded:
         err_code, ret_msg = 1, "no anomaly"
     else:
-        # Distinguish "no anomaly" from "data unavailable" for the panel.
         err_code, ret_msg = -12301, "all requested dimensions unavailable"
 
     return {
@@ -110,36 +100,39 @@ def _merge_dimensions(method_name: str, symbol: str, time_range: int,
     }
 
 
-@router.get("/capital")
+@router.get("/capital", response_model=AnomalyResponse)
 def capital_anomaly(
     symbol: str = Query(..., description="e.g. US.AAPL"),
     time_range: int = 30,
     language_id: int = 2,
     dimensions: list[str] | None = Query(default=None),
 ):
+    """Capital-flow anomalies (funds distribution, brokers) for one symbol."""
     requested = split_csv(dimensions)
     dims = [(d, d) for d in requested] if requested else FINANCIAL_DIMENSIONS
     return _merge_dimensions("get_financial_unusual", symbol, time_range, language_id, dims)
 
 
-@router.get("/technical")
+@router.get("/technical", response_model=AnomalyResponse)
 def technical_anomaly(
     symbol: str = Query(...),
     time_range: int = 30,
     language_id: int = 2,
     indicators: list[str] | None = Query(default=None),
 ):
+    """Technical anomalies (candle patterns, indicator events) for one symbol."""
     return _call("get_technical_unusual", symbol, time_range, split_csv(indicators),
                  language_id, dim_kwarg="indicator_filters")
 
 
-@router.get("/derivatives")
+@router.get("/derivatives", response_model=AnomalyResponse)
 def derivatives_anomaly(
     symbol: str = Query(...),
     time_range: int = 30,
     language_id: int = 2,
     dimensions: list[str] | None = Query(default=None),
 ):
+    """Derivatives anomalies (unusual options trades) for one symbol."""
     requested = split_csv(dimensions)
     dims = [(d, d) for d in requested] if requested else DERIVATIVE_DIMENSIONS
     return _merge_dimensions("get_derivative_unusual", symbol, time_range, language_id, dims)

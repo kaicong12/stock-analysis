@@ -1,3 +1,5 @@
+// Verdict card — the dual-sleeve synthesis: confidence, actions, rationale, risk.
+
 "use client";
 
 import { Card } from "@/components/ui/card";
@@ -17,7 +19,7 @@ import { ArrowDown, Minus, Play, Sparkles, TrendingDown, TrendingUp } from "luci
 type Tone = "bullish" | "bearish" | "neutral";
 type IconCmp = React.ComponentType<{ className?: string }>;
 
-// Buckets mirror synth.ts: 50 = coin-flip, >75 = strong, 90+ = rare.
+// Puts a confidence score into words; the thresholds mirror synth.ts.
 function confidenceInterpretation(c: number): string {
   if (c >= 90) return "Rare — overwhelming alignment, used sparingly";
   if (c >= 75) return "Strong conviction — clear thesis with corroboration";
@@ -26,8 +28,7 @@ function confidenceInterpretation(c: number): string {
   return "Coin-flip — panels disagree, no edge";
 }
 
-// Entry-or-pass only — the app has no portfolio feed, so it can't advise on
-// managing a position it can't see. See the action unions in lib/types.ts.
+// Entry-or-pass only: with no portfolio feed the app cannot advise on managing a position.
 const STOCK_ACTION_META: Record<StockAction, { label: string; baseIcon: IconCmp }> = {
   OPEN: { label: "Open Position", baseIcon: TrendingUp },
   PASS: { label: "Pass", baseIcon: Minus },
@@ -54,6 +55,7 @@ const TONE_CLS: Record<Tone, string> = {
 const CAPS = "text-[11px] font-bold tracking-[0.05em] uppercase text-on-surface-variant";
 const TILE = "rounded border border-outline-variant bg-surface-low";
 
+/** Renders the verdict: confidence column, both sleeves, rationale and risk. */
 export function VerdictCard({ data }: { data: DashboardData }) {
   const v = data.verdict!;
   const generated = new Date(data.generatedAt);
@@ -98,9 +100,7 @@ export function VerdictCard({ data }: { data: DashboardData }) {
   );
 }
 
-// Rendered as flat siblings, not a wrapper: the confidence column is a
-// full-height `justify-between` flex, so every line participates in the
-// distribution rather than bunching into two blocks.
+// Renders one confidence score as flat siblings, so each line joins the column's justify-between.
 function ConfidenceMeter({ label, value, labelClassName }: { label: string; value: number; labelClassName?: string }) {
   return (
     <>
@@ -119,9 +119,9 @@ function ConfidenceMeter({ label, value, labelClassName }: { label: string; valu
   );
 }
 
+// Renders the stock sleeve, toned by its directional bias.
 function StockSleeve({ sleeve }: { sleeve: SleeveVerdict<StockAction> }) {
   const meta = STOCK_ACTION_META[sleeve.action];
-  // Both OPEN and PASS take their tone from the sleeve's directional bias.
   const tone: Tone = DIRECTION_TONE[sleeve.direction];
   return (
     <Sleeve label="Stock Sleeve" action={meta.label} icon={meta.baseIcon} tone={tone}>
@@ -130,10 +130,9 @@ function StockSleeve({ sleeve }: { sleeve: SleeveVerdict<StockAction> }) {
   );
 }
 
+// Renders the wheel sleeve and its pointer to the strike desk.
 function DerivativesSleeve({ sleeve }: { sleeve: SleeveVerdict<DerivativesAction> }) {
   const meta = DERIVATIVES_ACTION_META[sleeve.action];
-  // PASS has no structure of its own, so it reads off the directional bias;
-  // every entry action carries its own inherent tone.
   const tone: Tone = sleeve.action === "PASS" ? DIRECTION_TONE[sleeve.direction] : meta.defaultTone;
   return (
     <Sleeve label="Wheel Sleeve" action={meta.label} icon={meta.baseIcon} tone={tone}>
@@ -146,6 +145,7 @@ function DerivativesSleeve({ sleeve }: { sleeve: SleeveVerdict<DerivativesAction
   );
 }
 
+// Renders the tile chrome shared by both sleeves: label, action row, then children.
 function Sleeve({
   label,
   action,
@@ -181,6 +181,7 @@ function Sleeve({
   );
 }
 
+// Renders the what-to-do instruction and whichever adjustment chips are present.
 function AdjustmentBlock({ adj }: { adj: PositionAdjustment }) {
   const chips: { label: string; value: string; tone?: "bullish" | "bearish" }[] = [];
   if (adj.sizing) chips.push({ label: "Size", value: adj.sizing });

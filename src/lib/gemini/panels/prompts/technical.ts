@@ -1,6 +1,4 @@
 // System prompt for the technical-analysis panel.
-// Mirrors the moomoo-technical-anomaly skill (~/.claude/skills/moomoo-technical-anomaly/SKILL.md).
-// Source-of-truth sections: Output Rules, Behavior Rules, Example Interpretation Style.
 
 export const SYSTEM = `You are the technical-analysis desk analyst running the moomoo-technical-anomaly skill against a single ticker.
 

@@ -1,5 +1,4 @@
-// Technical-analysis panel. Prompt mirrors the moomoo-technical-anomaly skill;
-// body lives in src/lib/gemini/panels/prompts/technical.ts.
+// Technical panel over the moomoo anomaly report plus the standing indicator snapshot.
 
 import { genJson } from "../client";
 import type { AnomalyResult, PanelSummary, TechnicalIndicators } from "../../types";
@@ -8,14 +7,9 @@ import { SYSTEM } from "./prompts/technical";
 
 const SCHEMA = baseSchema();
 
-// Build the deterministic indicator-state block embedded in the prompt. These
-// are server-computed (yfinance daily OHLCV); the panel prompt requires the
-// model to cite these numbers verbatim rather than inferring them from the
-// anomaly text. Mirrors the derivatives panel's volBlock.
+// Renders the server-computed indicator snapshot the prompt tells the model to cite verbatim.
 function indicatorBlock(t: TechnicalIndicators): string {
-  // == null catches BOTH null and undefined: a stale sidecar (pre-regime build)
-  // omits adx14/plusDi/minusDi entirely, so they arrive undefined — `=== null`
-  // would let undefined through into .toFixed() and crash the panel.
+  // `== null` must catch undefined too: a stale sidecar omits adx14/plusDi/minusDi entirely.
   const n = (x: number | null | undefined, d = 2): string => (x == null ? "n/a" : x.toFixed(d));
   const pct = (x: number | null | undefined): string => (x == null ? "n/a" : `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`);
   return [
@@ -33,6 +27,7 @@ function indicatorBlock(t: TechnicalIndicators): string {
   ].join("\n");
 }
 
+/** Produces the technical panel from the anomaly report, the indicator snapshot, or whichever exists. */
 export async function analyzeTechnical(
   input: AnomalyResult | null,
   ctx: PanelContext,
@@ -40,7 +35,6 @@ export async function analyzeTechnical(
 ): Promise<PanelSummary> {
   const hasAnomaly = !!input?.content?.trim();
   const hasIndicators = !!indicators && indicators.rsi14 !== null;
-  // Nothing to show only when BOTH sources are empty.
   if (!hasAnomaly && !hasIndicators) return emptyPanel("No technical-indicator data.");
 
   const sections: string[] = [

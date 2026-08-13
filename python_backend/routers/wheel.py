@@ -12,6 +12,7 @@ from config import (
     WHEEL_ROWS_PER_SIDE, WHEEL_TARGET_DTES, WHEEL_HV_MIN_SAMPLE,
 )
 from indicators import historical_vol, historical_vol_series, percentile_rank
+from models import VolRegimeResponse, WheelChainResponse
 from opend import quote_ctx
 from util import normalize, to_float, to_yf_ticker
 from vol_util import nearest, pick_expiries, snapshot_by_code
@@ -75,24 +76,18 @@ def _atm_iv(ctx, symbol: str, spot: float, target_dte: int) -> tuple[float | Non
     return atm["iv"], expiry_iso, (expiry_date - today).days
 
 
-@router.get("/vol/regime")
+@router.get("/vol/regime", response_model=VolRegimeResponse)
 def vol_regime(
     symbol: str = Query(..., description="e.g. US.AAPL"),
     target_dte: int = Query(30, description="Expiry closest to N DTE for the IV leg"),
 ):
-    """HV30 with its own trailing-1yr percentile, plus IV/HV.
-
-    A PROXY for IV Rank, not IV Rank: no data source carries historical implied
-    vol, so the percentile ranks REALIZED vol. Callers must label it as such.
-    Always 200 — a thin series yields label 'n/a', never an error.
-    """
+    """HV30, its trailing-1yr percentile and IV/HV — a PROXY for IV Rank, ranking realized vol."""
     yf_ticker = to_yf_ticker(symbol)
     closes = daily_closes(yf_ticker, n_bars=HV_RANK_BARS)
 
     hv30 = historical_vol(closes, window=30)
     series = historical_vol_series(closes, window=30)
-    # Trailing year only — a longer window would dilute the rank with regimes
-    # that no longer describe the name.
+    # Trailing year only; a longer window dilutes the rank with stale regimes.
     series = series[-252:]
     hv30_pct = percentile_rank(series, hv30) if (hv30 is not None and series) else None
 
@@ -110,8 +105,6 @@ def vol_regime(
             else:
                 chain_error = f"no spot for {symbol}"
     except Exception as exc:
-        # The HV half still stands, but the hole must be visible: a silent null
-        # here renders as an em dash and reads as "this name has no options".
         chain_error = f"{type(exc).__name__}: {exc}"
 
     iv_hv = (atm_iv / hv30) if (atm_iv is not None and hv30 and hv30 > 0) else None
@@ -149,10 +142,7 @@ def vol_regime(
 def _expected_move_band(
     ctx, chain_rows: list[dict], spot: float, dte: int
 ) -> tuple[float, float] | None:
-    """Quote a handful of near-the-money strikes to read this expiry's ATM IV,
-    then return the 1-SD bounds. Two-stage because the band decides which
-    strikes are worth quoting, and a fixed ±% window misses it on a high-IV
-    name at longer DTE."""
+    """1-SD bounds around spot, from the ATM IV read off this expiry's near-the-money strikes."""
     if dte <= 0:
         return None
     lo, hi = spot * (1 - WHEEL_ATM_SAMPLE), spot * (1 + WHEEL_ATM_SAMPLE)
@@ -191,8 +181,7 @@ def _strikes_past_band(chain_rows: list[dict], band: tuple[float, float]) -> lis
 
 
 def _leg_rows(chain_rows: list[dict], snaps: dict[str, dict], side: str) -> list[dict]:
-    """Per-strike rows for one side of one expiry. A strike with no bid is
-    dropped: it cannot be sold, so it is not a candidate."""
+    """Per-strike rows for one side of one expiry, strike-ascending; no bid means dropped."""
     out: list[dict] = []
     for r in chain_rows:
         code = r.get("code")
@@ -224,13 +213,12 @@ def _leg_rows(chain_rows: list[dict], snaps: dict[str, dict], side: str) -> list
     return out
 
 
-@router.get("/options/wheel-chain")
+@router.get("/options/wheel-chain", response_model=WheelChainResponse)
 def wheel_chain(
     symbol: str = Query(..., description="e.g. US.AAPL"),
     target_dtes: str = Query("", description="Comma-separated DTEs; defaults to 21,30,45"),
 ):
-    """Per-strike puts and calls across a few near-dated expiries. Puts are
-    limited to at/below spot and calls at/above — the wheel sells OTM only."""
+    """Per-strike puts and calls beyond the expected-move band, across a few near-dated expiries."""
     targets = WHEEL_TARGET_DTES
     if target_dtes.strip():
         parsed = [int(p) for p in target_dtes.split(",") if p.strip().isdigit()]

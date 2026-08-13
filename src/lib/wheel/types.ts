@@ -1,6 +1,6 @@
-// hv30Pct is a PROXY for IV Rank — no data source carries historical implied
-// vol, so it ranks realized vol against its own trailing year. Label it as such
-// anywhere it surfaces.
+// Types for the wheel plan: vol regime, option chain, acquisition zone and scored strikes.
+
+// hv30Pct is a PROXY for IV Rank built from realized vol — label it as such wherever it surfaces.
 export type VolRegimeLabel = "rich" | "fair" | "thin" | "n/a";
 
 export interface VolRegime {
@@ -56,15 +56,12 @@ export interface AcquisitionZone {
   };
 }
 
-// No composite score: annualized yield and acquisition quality pull in opposite
-// directions, so one number would hide the tradeoff being made.
+// No composite score: yield and acquisition quality pull in opposite directions.
 export interface ScoredStrike extends ChainStrike {
   annYield: number | null;     // percent, size-independent
   zonePos: ZonePosition;
   clearsLevel: boolean | null;
-  // The price the leg actually transacts at once the credit is counted: strike
-  // − mid for a put (owned at), strike + mid for a call (sold at).
-  effective: number | null;
+  effective: number | null;        // basis after the credit: strike − mid (put) or strike + mid (call)
   effectiveVsSpot: number | null;  // percent
   peAtEffective: number | null;    // effective ÷ forward EPS
 }
@@ -88,7 +85,7 @@ export interface WheelEvents {
   fomc: string[];
 }
 
-// Chart anchors the ladder draws behind the strikes. Levels arrive nearest-first.
+// Levels arrive nearest-first.
 export interface WheelLevels {
   support: number[];
   resistance: number[];

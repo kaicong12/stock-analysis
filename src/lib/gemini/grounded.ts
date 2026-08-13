@@ -1,11 +1,6 @@
-// Direct Gemini call with Google Search grounding — the same mechanism the
-// Gemini web app uses: the model issues live searches, reads pages, and writes
-// a free-form answer with web citations. This is the NON-streaming counterpart
-// to the assistant route's streaming grounding; used by the Stock Digest panel.
-//
-// NOTE: the googleSearch tool and a JSON responseSchema are mutually exclusive
-// in the Gemini API. We keep grounding and ask the model to emit any structured
-// signal inline (parsed by the caller) rather than forcing JSON mode.
+// Non-streaming Gemini call with Google Search grounding, returning prose plus citations.
+
+// The googleSearch tool and a JSON responseSchema are mutually exclusive in the Gemini API.
 import { GoogleGenAI } from "@google/genai";
 import { env } from "../env";
 
@@ -19,6 +14,7 @@ export interface GroundedResult {
   citations: GroundedCitation[];
 }
 
+/** Runs a web-grounded prompt and returns its text with deduped citation links. */
 export async function genGrounded(
   prompt: string,
   opts?: { model?: string },
@@ -35,7 +31,6 @@ export async function genGrounded(
   const cand = response.candidates?.[0];
   const text = cand?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
 
-  // De-dup grounding chunks into citation links (same shape as the assistant route).
   const citations: GroundedCitation[] = [];
   const seen = new Set<string>();
   for (const gc of cand?.groundingMetadata?.groundingChunks ?? []) {

@@ -1,3 +1,5 @@
+// Root layout — font variables, tooltip provider, global stylesheet.
+
 import type { Metadata } from "next";
 import { Inter, Work_Sans } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -21,6 +23,7 @@ export const metadata: Metadata = {
   description: "Synthesized stock analysis with dual-sleeve wheel-entry verdicts.",
 };
 
+/** Wraps every page in the html/body shell. */
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {

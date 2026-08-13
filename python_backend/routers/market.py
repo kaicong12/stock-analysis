@@ -4,14 +4,16 @@ from fastapi import APIRouter, HTTPException, Query
 from moomoo import RET_OK
 
 from config import PEERS_MIN_CAP, PEERS_MIN_PRICE
+from models import PeersResponse, SnapshotResponse
 from opend import quote_ctx
 from util import normalize
 
 router = APIRouter()
 
 
-@router.get("/snapshot")
+@router.get("/snapshot", response_model=SnapshotResponse)
 def snapshot(symbol: str = Query(..., description="e.g. US.AAPL")):
+    """Raw moomoo market snapshot row for one symbol."""
     with quote_ctx() as ctx:
         ret, data = ctx.get_market_snapshot([symbol])
     if ret != RET_OK:
@@ -20,13 +22,10 @@ def snapshot(symbol: str = Query(..., description="e.g. US.AAPL")):
     return {"symbol": symbol, "data": rows[0] if isinstance(rows, list) and rows else rows}
 
 
-@router.get("/peers/{symbol}")
+@router.get("/peers/{symbol}", response_model=PeersResponse)
 def peers(symbol: str, top: int = 8):
-    """Large-cap sector peers from the ticker's INDUSTRY plate.
-
-    Membership barely moves, and get_owner_plate / get_plate_stock are limited
-    to 10 req / 30s, so callers should cache this for ~a day.
-    """
+    """Large-cap sector peers from the ticker's INDUSTRY plate."""
+    # get_owner_plate / get_plate_stock are limited to 10 req / 30s; cache upstream.
     with quote_ctx() as ctx:
         ret, plates = ctx.get_owner_plate([symbol])
         if ret != RET_OK:

@@ -1,3 +1,5 @@
+// Web-grounded macro backdrop briefing, cached process-wide.
+
 import { GoogleGenAI } from "@google/genai";
 import { env } from "../env";
 
@@ -10,28 +12,18 @@ const PROMPT =
   "PCE, and any other major known macro catalysts. Lead with the nearest dated events.\n" +
   "Be concise — bullet points per item. Do NOT recap past events that are already priced in.";
 
-// The macro backdrop moves slowly (daily-ish), so we fetch it AT MOST once per
-// this window across the entire server process. Bump down if you want fresher
-// data; set to Infinity for strictly once-per-process.
 const TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
-// Module-level cache shared by every caller (the /api/macro route AND each
-// batch run). Two guards prevent Gemini spam:
-//   1. `cache` — a fresh successful result is reused without any API call.
-//   2. `inflight` — concurrent callers (e.g. a batch firing N tickers, or the
-//      client double-invoking the mount effect in dev StrictMode) all await the
-//      SAME promise, so only ONE request is ever in flight.
-// Failures are NOT cached, so a transient error retries on the next call.
+// Process-wide cache plus in-flight dedupe; failures are never cached.
 let cache: { text: string; at: number } | null = null;
 let inflight: Promise<string | null> | null = null;
 
+// Runs the grounded macro request, returning null on a missing key or any error.
 async function callGemini(): Promise<string | null> {
   if (!env.geminiApiKey) return null;
   try {
     const ai = new GoogleGenAI({ apiKey: env.geminiApiKey });
     const response = await ai.models.generateContent({
-      // Web-grounded (Google Search tool below) → use the more capable grounded
-      // model, same as the Stock Digest panel and Ask AI.
       model: env.geminiGroundedModel,
       contents: [{ role: "user", parts: [{ text: PROMPT }] }],
       config: { tools: [{ googleSearch: {} }] },
@@ -45,16 +37,15 @@ async function callGemini(): Promise<string | null> {
   }
 }
 
-// Returns the macro briefing text, or null on failure. Never throws.
-// Guaranteed to hit Gemini at most once per TTL window, process-wide.
+/** Returns the macro briefing text, or null on failure; hits Gemini at most once per TTL window. */
 export async function fetchMacroContext(): Promise<string | null> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.text; // fresh hit — no API call
-  if (inflight) return inflight; // a fetch is already running — reuse it
+  if (cache && Date.now() - cache.at < TTL_MS) return cache.text;
+  if (inflight) return inflight;
 
   inflight = (async () => {
     try {
       const text = await callGemini();
-      if (text !== null) cache = { text, at: Date.now() }; // only cache successes
+      if (text !== null) cache = { text, at: Date.now() };
       return text;
     } finally {
       inflight = null;

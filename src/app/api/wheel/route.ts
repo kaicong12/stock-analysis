@@ -1,3 +1,5 @@
+// GET /api/wheel — the deterministic wheel plan for one underlying.
+
 import { normalizeSymbol, ticker as toTicker } from "@/lib/symbol";
 import { fetchWheelPlan } from "@/lib/wheel/plan";
 
@@ -5,9 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Deterministic wheel read for one underlying — vol regime, acquisition zone,
-// and the scored strike tables. Pure data; the interpretation lives in the
-// StrikeDesk component and the verdict's wheel sleeve.
+/** Returns the vol regime, acquisition zone and scored strike tables for a symbol. */
 export async function GET(req: Request) {
   const rawSymbol = new URL(req.url).searchParams.get("symbol")?.trim();
   if (!rawSymbol) {

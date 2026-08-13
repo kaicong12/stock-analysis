@@ -1,9 +1,4 @@
-"""moomoo sidecar — market data, fundamentals, and deterministic indicators.
-
-Everything here is computed in Python and cited verbatim upstream; nothing is
-inferred by an LLM. Routes live in routers/, shared math in indicators.py and
-levels.py, caching in store.py + bars.py.
-"""
+"""moomoo sidecar app — mounts every router."""
 
 from fastapi import FastAPI
 

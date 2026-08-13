@@ -1,5 +1,5 @@
-// One file per moomoo skill — see ~/.claude/skills/moomoo-* for the originals.
-// Fundamentals is the exception: yfinance via the python sidecar.
+// Barrel for the seven panel analyzers.
+
 export { analyzeCapital } from "./capital";
 export { analyzeTechnical } from "./technical";
 export { analyzeNews } from "./news";

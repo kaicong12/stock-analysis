@@ -1,8 +1,11 @@
+// Idle-state copy and the loading skeleton for the main column.
+
 "use client";
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
+/** Renders the what-this-does card shown before the first search. */
 export function Welcome() {
   return (
     <Card className="gap-2 border-outline-variant p-7">
@@ -26,6 +29,7 @@ export function Welcome() {
   );
 }
 
+/** Renders placeholder blocks standing in for the hero and panel grid. */
 export function SkeletonBlock() {
   return (
     <div className="flex flex-col gap-4">

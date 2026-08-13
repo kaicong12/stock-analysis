@@ -1,6 +1,4 @@
-// Capital-flow panel. Prompt mirrors the moomoo-capital-anomaly skill verbatim;
-// kept in src/lib/gemini/panels/prompts/capital.ts so the prompt body is editable
-// independently and stays in sync with ~/.claude/skills/moomoo-capital-anomaly/SKILL.md.
+// Capital-flow panel over the moomoo capital anomaly report.
 
 import { genJson } from "../client";
 import type { AnomalyResult, PanelSummary } from "../../types";
@@ -9,16 +7,12 @@ import { SYSTEM } from "./prompts/capital";
 
 const SCHEMA = baseSchema();
 
-// Format a Date as moomoo's "YYYY.M.D" window style (no zero-padding), to match
-// the 时间范围 line the skill emits.
+// Formats a Date in moomoo's unpadded "YYYY.M.D" window style.
 function fmtWindowDate(d: Date): string {
   return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
 }
 
-// Resolve the concrete calendar window for the report. The model must NOT invent
-// these dates (it has no reliable notion of "today"), and moomoo's own time_range
-// is a RELATIVE phrase ("近30个自然日"), not a date range — so we always derive
-// [today - timeRange days, today] from the real current date here.
+// Derives the concrete calendar window for the report, since moomoo's time_range is a relative phrase.
 function resolveWindow(timeRange: number): string {
   const end = new Date();
   const start = new Date(end);
@@ -26,9 +20,7 @@ function resolveWindow(timeRange: number): string {
   return `${fmtWindowDate(start)} - ${fmtWindowDate(end)}`;
 }
 
-// moomoo embeds per-anomaly dates as raw unix-epoch markers ("[timestamp: 1781496000]").
-// Convert them to ISO dates so the model surfaces correct dates instead of doing
-// (often wrong) epoch→calendar math itself — the original source of phantom windows.
+// Rewrites moomoo's raw epoch markers as ISO dates so the model never does epoch math.
 function humanizeTimestamps(content: string): string {
   return content.replace(/\[timestamp:\s*(\d+)\]/g, (full, secs: string) => {
     const d = new Date(Number(secs) * 1000);
@@ -36,6 +28,7 @@ function humanizeTimestamps(content: string): string {
   });
 }
 
+/** Produces the capital-flow panel from the anomaly report. */
 export async function analyzeCapital(
   input: AnomalyResult | null,
   ctx: PanelContext

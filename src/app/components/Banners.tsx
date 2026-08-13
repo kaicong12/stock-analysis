@@ -1,3 +1,5 @@
+// Inline banners: request failures and the pre-search earnings gate.
+
 "use client";
 
 import type { ReactNode } from "react";
@@ -8,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 const BTN = "h-[30px] px-3.5 text-xs font-semibold tracking-[0.04em]";
 
+/** Renders a titled alert in either the error or info tone. */
 export function ErrorBanner({
   title,
   children,
@@ -34,6 +37,7 @@ export function ErrorBanner({
   );
 }
 
+/** Renders the earnings-in-window warning with continue and cancel actions. */
 export function EarningsGate({
   ticker,
   daysAway,

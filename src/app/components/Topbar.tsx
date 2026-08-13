@@ -1,9 +1,12 @@
+// Sticky header with the ticker search field.
+
 "use client";
 
 import type { FormEvent } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
+/** Renders the brand mark and the ticker search form. */
 export function Topbar({
   ticker,
   setTicker,

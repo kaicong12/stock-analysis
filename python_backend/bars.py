@@ -10,6 +10,7 @@ from util import to_float
 
 
 def _today() -> str:
+    """Today's date as an ISO string."""
     return dt.date.today().isoformat()
 
 
@@ -33,7 +34,7 @@ def daily_closes(yf_ticker: str, n_bars: int = 80) -> list[float]:
 
     import yfinance as yf  # lazy: keeps cold start off unrelated routes
 
-    # Ask for ~2x calendar days to absorb weekends and holidays.
+    # period counts calendar days, so ask ~2x to cover weekends and holidays.
     period_days = max(n_bars * 2, 120)
     try:
         hist = yf.Ticker(yf_ticker).history(
@@ -73,12 +74,7 @@ def daily_closes(yf_ticker: str, n_bars: int = 80) -> list[float]:
 
 
 def daily_ohlcv(yf_ticker: str, n_bars: int = 220) -> list[dict]:
-    """Most recent N daily OHLCV bars, ascending. Closes alone can't carry the
-    open and volume the price-action signal needs, hence a separate cache.
-
-    Returns [] rather than raising — the price-action signal must degrade to
-    'none' instead of breaking the verdict.
-    """
+    """Most recent N daily OHLCV bars, ascending; [] rather than raising when unavailable."""
     today = _today()
 
     with db() as conn:
