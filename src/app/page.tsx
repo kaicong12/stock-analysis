@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { PanelSummary, SnapshotResult, Verdict } from "../lib/types";
+import type { MarketDigestResult } from "../lib/digest/types";
 import { EarningsGate, ErrorBanner } from "./components/Banners";
 import { Hero } from "./components/Hero";
 import { MacroBriefing } from "./components/MacroBriefing";
+import { MarketDigest } from "./components/MarketDigest";
 import { Panel, PANEL_ICONS, PANEL_LABELS } from "./components/Panel";
 import { HeroEmpty, MAIN, MAIN_INNER, PANEL_GRID, SHELL } from "./components/Shell";
 import { SkeletonBlock, Welcome } from "./components/Welcome";
@@ -169,6 +171,9 @@ export default function Page() {
 
   const [macroText, setMacroText] = useState<string | null>(null);
   const [macroStatus, setMacroStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  // Market-wide: fetched once on mount, never keyed by ticker. The server cache does the sharing.
+  const [digest, setDigest] = useState<MarketDigestResult | null>(null);
+  const [digestStatus, setDigestStatus] = useState<"idle" | "loading" | "ready" | "error">("loading");
   // Mirror of macroText for runAnalysis to read without taking macroText as a
   // dependency — keeps runAnalysis identity stable so the URL-hydration effect
   // doesn't re-fire (and re-run a whole analysis) when macro lands.
@@ -201,6 +206,17 @@ export default function Page() {
         setMacroStatus("ready");
       })
       .catch(() => setMacroStatus("error"));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/digest")
+      .then(async (r) => {
+        const j = (await r.json()) as { digest?: MarketDigestResult; error?: string };
+        if (!r.ok || !j.digest) throw new Error(j.error ?? `HTTP ${r.status}`);
+        setDigest(j.digest);
+        setDigestStatus("ready");
+      })
+      .catch(() => setDigestStatus("error"));
   }, []);
 
   // The expensive half: 7 panel Gemini calls + the synth verdict. Split out of
@@ -386,6 +402,8 @@ export default function Page() {
             )}
 
             {!state.snapshot && state.status === "idle" && <Welcome />}
+
+            <MarketDigest digest={digest} status={digestStatus} />
 
             {(macroStatus === "loading" || macroStatus === "ready" || macroStatus === "error") && (
               <MacroBriefing text={macroText} status={macroStatus} />

@@ -19,8 +19,10 @@ The user is a **long-term investor who wheels the names they want to own** — n
 ## Working Style
 
 - **Minimal diffs.** Change only what the task requires. Do not refactor, rename, reformat, or "improve" adjacent code that was not part of the ask.
-- **Minimal comments.** Comment only what the code cannot say itself — a non-obvious constraint, a rule imposed from outside, or a reason a line exists at all. Do not narrate what the code does, restate a function's name in prose, or leave section banners.
-- Prefer deleting a comment over updating it. If the code needs a paragraph to explain, rewrite the code.
+- **A docstring is the entire comment budget.** One line at the top of each file saying what it is. One line on each function saying what it does. Nothing else — no inline commentary, no block explanations above a statement, no section banners, no narrating code that already reads clearly, no rationale essays.
+- A constraint the code genuinely cannot express — an external rule, a non-obvious ordering requirement — may take **one** extra line. If it needs a paragraph, rewrite the code.
+- Prefer deleting a comment over updating it.
+- **Python:** the sidecar is FastAPI, so response shapes are pydantic models in `python_backend/models.py`, not bare dicts. Routes declare `response_model`.
 
 ## UI
 

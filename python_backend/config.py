@@ -30,3 +30,8 @@ WHEEL_ROWS_PER_SIDE = 12     # strikes quoted past each band edge (the UI shows 
 WHEEL_HV_PCT_RICH = 50.0     # HV30 trailing-1yr percentile that reads elevated
 WHEEL_IV_HV_RICH = 1.15      # IV/HV30 at which implied is meaningfully rich
 WHEEL_HV_MIN_SAMPLE = 150    # below this many ranked bars the percentile is n/a
+
+# Market tape (the digest's deterministic half).
+TAPE_BARS = 300              # fetched depth; the ranking window slices from this
+TAPE_RANK_WINDOW = 252       # trailing sessions the VIX percentile ranks over
+TAPE_RANK_MIN_SAMPLE = 150   # below this many ranked bars the percentile is n/a

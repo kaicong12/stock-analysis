@@ -10,6 +10,7 @@ import type {
   SnapshotResult,
   TechnicalIndicators,
 } from "../types";
+import type { MarketTape } from "../digest/types";
 import type { VolRegime, WheelChain } from "../wheel/types";
 
 interface RawAnomalyResponse {
@@ -273,5 +274,16 @@ export async function getPeers(symbol: string, top = 8): Promise<PeersResult> {
   } catch {
     return { symbol, industryPlate: null, peers: [] };
   }
+}
+
+// Index/vol/energy closes for the digest. yfinance-only upstream, so it works with OpenD down.
+export async function getMarketTape(): Promise<MarketTape> {
+  const r = await callSidecar<MarketTape>("/market/tape", {});
+  return {
+    asOf: r.asOf ?? null,
+    quotes: Array.isArray(r.quotes) ? r.quotes : [],
+    vix: r.vix ?? null,
+    errors: Array.isArray(r.errors) ? r.errors : [],
+  };
 }
 
