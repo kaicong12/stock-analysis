@@ -16,7 +16,7 @@ import { Topbar } from "./components/Topbar";
 import { VerdictCard } from "./components/VerdictCard";
 
 type PanelKey = keyof Verdict["panels"];
-const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "sentiment", "digest", "news", "insider"];
+const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "sentiment", "digest", "news"];
 
 // Covers the "no binary events inside the 30-45 DTE expiry window" rule; the gate warns, not blocks.
 const EARNINGS_GATE_DAYS = 45;

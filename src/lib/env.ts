@@ -17,5 +17,4 @@ export const env = {
   openrouterAppUrl: process.env.OPENROUTER_APP_URL ?? "http://localhost:3000",
   openrouterAppTitle: process.env.OPENROUTER_APP_TITLE ?? "Alpha Insights",
   pyBackendUrl: process.env.PYBACKEND_URL ?? "http://localhost:8765",
-  massiveApiKey: process.env.MASSIVE_API_KEY ?? "",
 };

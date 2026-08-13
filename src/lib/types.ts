@@ -290,56 +290,6 @@ export interface PeerNewsItem {
   publishTime: number;
 }
 
-export interface InsiderTransaction {
-  name: string;
-  title: string;
-  code: string;             // raw SEC transaction code (P/S/A/M/F/G/...)
-  typeLabel: string;        // human-readable code, e.g. "Buy (open mkt)"
-  isOpenMarket: boolean;    // true only for P and S
-  isPlan: boolean;          // pre-scheduled Rule 10b5-1 plan trade (aff_10b5_one)
-  isDiscretionary: boolean; // open-market AND not a 10b5-1 plan trade
-  transactionDate: string;  // ISO YYYY-MM-DD
-  filingDate: string;       // ISO YYYY-MM-DD
-  shares: number;
-  price: number;            // per-share; 0 for grants/exercises/gifts
-  value: number;            // shares × price (vendor-provided when available)
-  sharesOwnedAfter: number | null;
-  pctOfHoldings: number | null;     // shares / (shares + sharesOwnedAfter)
-  acquiredDisposed: string | null;  // "A" acquired / "D" disposed
-}
-
-export interface InsiderFlowSummary {
-  buyCount: number;              // open-market BUY (code P) transactions
-  buyValue: number;
-  distinctBuyers: number;
-  discSellCount: number;         // discretionary (non-plan) open-market sells
-  discSellValue: number;
-  distinctDiscSellers: number;
-  planSellCount: number;         // routine Rule 10b5-1 pre-scheduled sells
-  planSellValue: number;
-  netConviction: number;         // buyValue − discSellValue (plan sells excluded)
-  totalFilings: number;          // all Form 4 rows in the window
-}
-
-export interface InsiderResult {
-  ticker: string;
-  transactions: InsiderTransaction[];  // full window, recency order
-  notable: InsiderTransaction[];       // open-market-first, value-ranked, capped
-  flow: InsiderFlowSummary;
-}
-
-export interface InsiderFlowItem {
-  name: string;
-  title: string;
-  typeLabel: string;          // e.g. "Buy (open mkt)", "Sell (10b5-1)", "Sell (open mkt)"
-  direction: "buy" | "sell" | "neutral";  // buy = P; sell = discretionary S; neutral = plan S / grant / exercise / etc.
-  routine: boolean;           // true for 10b5-1 plan sells and comp plumbing
-  date: string;
-  shares: number;
-  value: number;
-  pctOfHoldings: number | null;
-}
-
 export interface PanelSummary {
   headline: string;
   bullets: string[];
@@ -349,7 +299,6 @@ export interface PanelSummary {
   evidence?: PanelEvidence[];
   meta?: PanelMeta[];
   readThrough?: ReadThrough[];
-  insiderFlow?: InsiderFlowItem[];  // insider panel only: deterministic rows attached in code
 }
 
 export type SleeveDirection = "bullish" | "bearish" | "neutral";
@@ -396,7 +345,6 @@ export interface Verdict {
     digest: PanelSummary;
     sentiment: PanelSummary;
     fundamentals: PanelSummary;
-    insider: PanelSummary;
   };
 }
 
@@ -409,7 +357,6 @@ export const PANEL_KEYS: PanelKey[] = [
   "sentiment",
   "digest",
   "news",
-  "insider",
 ];
 
 export interface DashboardData {

@@ -14,7 +14,7 @@ import type {
   SleeveVerdict,
   StockAction,
 } from "../../lib/types";
-import { ArrowDown, Minus, Play, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
+import { Minus, Play, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 
 type Tone = "bullish" | "bearish" | "neutral";
 type IconCmp = React.ComponentType<{ className?: string }>;
@@ -130,17 +130,13 @@ function StockSleeve({ sleeve }: { sleeve: SleeveVerdict<StockAction> }) {
   );
 }
 
-// Renders the wheel sleeve and its pointer to the strike desk.
+// Renders the wheel sleeve, toned by its action.
 function DerivativesSleeve({ sleeve }: { sleeve: SleeveVerdict<DerivativesAction> }) {
   const meta = DERIVATIVES_ACTION_META[sleeve.action];
   const tone: Tone = sleeve.action === "PASS" ? DIRECTION_TONE[sleeve.direction] : meta.defaultTone;
   return (
     <Sleeve label="Wheel Sleeve" action={meta.label} icon={meta.baseIcon} tone={tone}>
       <AdjustmentBlock adj={sleeve.adjustment} />
-      <div className="mt-3 flex items-center gap-2 rounded border border-outline-variant bg-surface-container px-3 py-2.5 text-[11px] font-semibold tracking-[0.04em] uppercase text-on-surface-variant">
-        <ArrowDown className="size-3 text-tertiary" />
-        Strike desk below
-      </div>
     </Sleeve>
   );
 }

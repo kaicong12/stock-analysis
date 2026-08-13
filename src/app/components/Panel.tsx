@@ -10,7 +10,6 @@ import {
   Heart,
   Landmark,
   Newspaper,
-  UserCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -19,7 +18,6 @@ import { cn } from "@/lib/utils";
 import { Markdown, MarkdownInline } from "./Markdown";
 import type {
   CommentSentimentResult,
-  InsiderFlowItem,
   NewsItem,
   NewsResult,
   PanelDirection,
@@ -38,7 +36,6 @@ export const PANEL_LABELS: Record<keyof Verdict["panels"], string> = {
   digest: "Stock Digest",
   sentiment: "Community Sentiment",
   fundamentals: "Fundamentals",
-  insider: "Insider Flow",
 };
 
 export const PANEL_ICONS: Record<keyof Verdict["panels"], ReactNode> = {
@@ -48,7 +45,6 @@ export const PANEL_ICONS: Record<keyof Verdict["panels"], ReactNode> = {
   digest: <FileText />,
   sentiment: <Heart />,
   fundamentals: <Landmark />,
-  insider: <UserCheck />,
 };
 
 const SUB_LABEL = "mb-1.5 text-[9.5px] font-bold tracking-[0.08em] uppercase text-on-surface-variant";
@@ -68,7 +64,6 @@ export function Panel(props: {
   const evidence = summary?.evidence ?? [];
   const meta = summary?.meta ?? [];
   const readThrough = summary?.readThrough ?? [];
-  const insiderFlow = summary?.insiderFlow ?? [];
   const showFeed = !!props.feed && props.feed.posts.length > 0;
   const showNewsFallback = !summary?.evidence && !!props.news && props.news.items.length > 0;
   return (
@@ -118,13 +113,12 @@ export function Panel(props: {
           </div>
         )}
 
-        {(evidence.length > 0 || showNewsFallback || showFeed || readThrough.length > 0 || insiderFlow.length > 0) && (
+        {(evidence.length > 0 || showNewsFallback || showFeed || readThrough.length > 0) && (
           <Separator className="mt-1 -mx-[18px] w-[calc(100%+36px)]!" />
         )}
         {evidence.length > 0 && <EvidenceList items={evidence} />}
         {evidence.length === 0 && showNewsFallback && <NewsList items={props.news!.items} />}
         {readThrough.length > 0 && <ReadThroughBlock items={readThrough} />}
-        {insiderFlow.length > 0 && <InsiderFlowBlock items={insiderFlow} />}
         {showFeed && <FeedList posts={props.feed!.posts} />}
       </div>
     </Card>
@@ -228,62 +222,15 @@ function ReadThroughBlock({ items }: { items: ReadThrough[] }) {
 const RT_ITEM =
   "flex flex-col gap-1 rounded border border-outline-variant border-l-2 border-l-current bg-surface-low px-2.5 py-[7px] no-underline transition-colors hover:bg-surface-high";
 
-// Renders the name, routine flag and trailing tag shared by read-through and insider rows.
-function RowHead({ peer, tag, routine }: { peer: string; tag: string; routine?: boolean }) {
+// Renders the name and trailing tag on a read-through row.
+function RowHead({ peer, tag }: { peer: string; tag: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="size-[7px] shrink-0 rounded-full bg-current" />
       <span className="text-[11px] font-bold tracking-[0.04em] text-on-surface tabular-nums">{peer}</span>
-      {routine && (
-        <span className="rounded border border-outline-variant bg-surface-high px-[5px] py-px text-[8.5px] font-bold tracking-[0.06em] uppercase text-on-surface-variant">
-          routine
-        </span>
-      )}
       <span className="ml-auto text-[9.5px] font-semibold tracking-[0.06em] uppercase text-on-surface-variant">
         {tag}
       </span>
-    </div>
-  );
-}
-
-const INSIDER_DIR_CLS: Record<InsiderFlowItem["direction"], string> = {
-  buy: "text-bullish",
-  sell: "text-bearish",
-  neutral: "text-neutral",
-};
-
-// Abbreviates a transaction value to K/M dollars.
-function insiderMoney(v: number): string {
-  const a = Math.abs(v);
-  if (a >= 1_000_000) return `$${(a / 1_000_000).toFixed(1)}M`;
-  if (a >= 1_000) return `$${Math.round(a / 1_000)}K`;
-  if (a > 0) return `$${Math.round(a)}`;
-  return "—";
-}
-
-// Lists Form 4 transactions; routine ones stay neutral so scheduled selling can't read as conviction.
-function InsiderFlowBlock({ items }: { items: InsiderFlowItem[] }) {
-  return (
-    <div>
-      <div className={SUB_LABEL}>Recent Form 4 transactions</div>
-      <div className="flex flex-col gap-2">
-        {items.slice(0, 8).map((it, i) => {
-          const pct =
-            it.pctOfHoldings !== null && it.pctOfHoldings > 0
-              ? ` · ${(it.pctOfHoldings * 100).toFixed(1)}% of stake`
-              : "";
-          return (
-            <div key={i} className={cn(RT_ITEM, INSIDER_DIR_CLS[it.direction])}>
-              <RowHead peer={it.name} tag={it.typeLabel} routine={it.routine} />
-              <span className="text-xs leading-[1.45] text-on-surface-variant">
-                {it.title} · {it.shares.toLocaleString()} sh · {insiderMoney(it.value)}
-                {pct}
-                {it.date ? ` · ${it.date}` : ""}
-              </span>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
