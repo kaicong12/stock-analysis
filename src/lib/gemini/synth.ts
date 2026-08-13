@@ -1,3 +1,5 @@
+// Synthesizes the seven panel reads into one dual-sleeve verdict (stock + wheel).
+
 import { genJson } from "./client";
 import type {
   DerivativesAction,
@@ -12,8 +14,6 @@ import type {
   Verdict,
 } from "../types";
 import type { WheelPlan } from "../wheel/types";
-
-// ---------- schema fragments ----------
 
 const ADJUSTMENT_SCHEMA = {
   type: "object",
@@ -56,8 +56,7 @@ const DERIVATIVES_SLEEVE_SCHEMA = {
   required: ["action", "direction", "confidence", "adjustment"],
 };
 
-// Dual-sleeve verdict — does NOT include the panels (route attaches them
-// post-synth).
+// Excludes the panels — the route attaches those after the synth returns.
 const VERDICT_RESPONSE_SCHEMA = {
   type: "object",
   properties: {
@@ -68,8 +67,6 @@ const VERDICT_RESPONSE_SCHEMA = {
   },
   required: ["rationale", "riskFactor", "stock", "derivatives"],
 };
-
-// ---------- system instruction ----------
 
 const SYSTEM_INSTRUCTION = `You are the head PM for a LONG-TERM INVESTOR who WHEELS the names they want to own. Seven desk analysts have already produced structured panel reads (capital flow, technicals, news, digest, community sentiment, fundamentals, insider activity). Alongside them the payload carries a \`wheel\` block — the acquisition zone, vol regime and scored strike tables, computed deterministically in code rather than by an analyst. You read those inputs and issue ONE dual-sleeve verdict: a stock-side action AND a wheel-side action.
 
@@ -242,25 +239,13 @@ Hard rules:
 - NEVER assume the user holds shares, options, or cash. When a strategy needs one, state the prerequisite as a condition in the instruction.
 - Don't invent panel facts — only cite what the panels actually say.`;
 
-// ---------- input shaping ----------
-
 export interface SynthInput {
   ticker: string;
   symbol: string;
   snapshot: SnapshotResult | null;
-  // Deterministic price-action breakdown/breakout signal (falling-knife guard).
-  // Null when the sidecar is unavailable — the guard then no-ops.
   priceAction: PriceAction | null;
-  // Standing technical-indicator state (RSI/MACD/Bollinger/SMA distances),
-  // server-computed. Complements the technical panel's anomaly EVENTS with the
-  // current STATE (e.g. overbought). Null when the sidecar is unavailable.
   technicalIndicators: TechnicalIndicators | null;
-  // Deterministic wheel read — acquisition zone, vol regime, and the scored
-  // strike tables. Null when the sidecar is unavailable; the sleeve then leans
-  // on the panels alone.
   wheelPlan?: WheelPlan | null;
-  // Live macro backdrop from Gemini + Google Search grounding, fetched once on
-  // page load. Ambient context only — do not override panel signals with it.
   macroContext?: string | null;
   panels: {
     capital: PanelSummary;
@@ -278,9 +263,7 @@ function r1(v: number | null): number | null {
   return v === null ? null : Number(v.toFixed(1));
 }
 
-// Compact view of the price-action signal for the prompt. Null input (sidecar
-// down) collapses to signal "none" so the guard prose simply finds nothing to
-// fire on.
+// Reduces the price-action signal to the fields the prompt reads.
 function compressPriceAction(pa: PriceAction | null) {
   if (!pa) return { signal: "none", severity: "none", reasons: [] as string[] };
   return {
@@ -297,29 +280,21 @@ function compressPriceAction(pa: PriceAction | null) {
   };
 }
 
+// Reduces a panel summary to the fields the prompt reads, omitting empty ones.
 function compressPanel(p: PanelSummary) {
   return {
     direction: p.direction,
     headline: p.headline,
     conclusion: p.conclusion,
     bullets: p.bullets,
-    // Stock Digest panel: the full web-grounded short-term read. Passed through
-    // verbatim so the synth sees the live price action / near-term catalysts the
-    // derivatives sleeve trades on, not just the compressed direction chip.
     ...(p.prose ? { prose: p.prose } : {}),
-    // Peer read-through reaches the verdict as a risk overlay (news panel only;
-    // undefined elsewhere). See the "Peer read-through" clause in SYSTEM_INSTRUCTION.
     ...(p.readThrough && p.readThrough.length > 0 ? { readThrough: p.readThrough } : {}),
-    // Deterministic, code-computed numbers the prompt explicitly cites: the
-    // fundamentals "Earnings" row + insider "Net Conviction" chip live in meta,
-    // and the exact Form-4 rows (value, % of stake, routine flag) live in
-    // insiderFlow. These are attached in code precisely so they're exact — don't
-    // make synth rely on the upstream panel LLM having echoed them into prose.
     ...(p.meta && p.meta.length > 0 ? { meta: p.meta } : {}),
     ...(p.insiderFlow && p.insiderFlow.length > 0 ? { insiderFlow: p.insiderFlow } : {}),
   };
 }
 
+// Builds the per-ticker user prompt from the structured payload.
 function buildPrompt(input: SynthInput): string {
   const payload = {
     ticker: input.ticker,
@@ -333,18 +308,9 @@ function buildPrompt(input: SynthInput): string {
       name: input.snapshot.name,
       updateTime: input.snapshot.updateTime,
     },
-    // Deterministic falling-knife / melt-up guard (server-computed price action).
-    // See the FALLING-KNIFE / MOMENTUM GUARD section in SYSTEM_INSTRUCTION.
     priceAction: compressPriceAction(input.priceAction),
-    // Standing technical-indicator readings (RSI/MACD/Bollinger/SMA distances).
-    // See the TECHNICAL INDICATOR STATE section in SYSTEM_INSTRUCTION.
     technicalIndicators: input.technicalIndicators ?? null,
-    // Deterministic wheel read: acquisition zone, vol-regime proxy, and the
-    // scored strike tables the sleeve picks from. Null = lean on panels alone.
     wheel: input.wheelPlan ?? null,
-    // Ambient macro backdrop (live web-search). Treat as a 10-20% weight on the
-    // directional call — reinforces or tempers panel signals, does not override them.
-    // Null when unavailable; ignore if null.
     macroEnvironment: input.macroContext ?? null,
     panelSummaries: {
       capital: compressPanel(input.panels.capital),
@@ -357,9 +323,6 @@ function buildPrompt(input: SynthInput): string {
     },
   };
 
-  // DEBUG: what gets fed INTO the model (the full structured payload). Toggle
-  // off by unsetting SYNTH_DEBUG. The system instruction is static (SYSTEM_
-  // INSTRUCTION above); this payload is the per-ticker input.
   if (process.env.SYNTH_DEBUG) {
     console.log(`\n[synth] ===== MODEL INPUT for ${input.ticker} (${input.symbol}) =====`);
     console.log(JSON.stringify(payload, null, 2));
@@ -384,33 +347,24 @@ interface RawVerdict {
   derivatives: { action: DerivativesAction; direction: SleeveDirection; confidence: number; adjustment: PositionAdjustment };
 }
 
-// Strip any "% NAV" / share-count / contract-count fragments the model emits
-// despite the prompt forbidding them. Without a portfolio feed these numbers
-// are pure invention, so they get removed rather than recomputed.
-// Order matters: peel off the wrapping phrase ("sized at X% NAV") before the
-// bare "X% NAV" pattern, otherwise we leave dangling prepositions.
+// Removes "% NAV" / share-count / contract-count fragments from model prose.
+// Order matters: the wrapping phrase must be peeled before the bare "% NAV" pattern.
 function stripSizingPhrases(s: string): string {
   if (!s) return s;
   return s
-    // "sized at/to ~N% NAV (~N contracts)" or "sized at ~N% NAV" — full phrase
     .replace(
       /,?\s*sized\s+(?:at|to)\s+~?\s*\d+(?:\.\d+)?\s*%\s*(?:of\s+)?NAV(?:\s*\(\s*~?\s*\d+\s+contracts?\s*\))?\s*/gi,
       " ",
     )
-    // Parenthesized "(~N% NAV)" or "(~N% of NAV)"
     .replace(/\(\s*~?\s*\d+(?:\.\d+)?\s*%\s*(?:of\s+)?NAV\s*\)/gi, " ")
-    // Bare "~N% NAV" anywhere else
     .replace(/~?\s*\d+(?:\.\d+)?\s*%\s*(?:of\s+)?NAV/gi, " ")
-    // Stand-alone "(~N contracts)" / "(N shares)"
     .replace(/\(\s*~?\s*\d+\s+(?:contracts?|shares?)\s*\)/gi, " ")
-    // Collapse whitespace + tidy punctuation
     .replace(/\s{2,}/g, " ")
     .replace(/\s+([.,;])/g, "$1")
     .trim();
 }
 
-// Returns the dual-sleeve verdict fields only — the route attaches the panels
-// (already known).
+/** Runs the synth model and returns the dual-sleeve verdict fields, panels excluded. */
 export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict, "panels">> {
   const raw = await genJson<RawVerdict>({
     systemInstruction: SYSTEM_INSTRUCTION,
@@ -419,8 +373,6 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
     temperature: 0.3,
   });
 
-  // DEBUG: what the model GENERATED, before the deterministic overrides below
-  // rewrite it.
   if (process.env.SYNTH_DEBUG) {
     console.log(`\n[synth] ===== MODEL OUTPUT for ${input.ticker} (raw, pre-override) =====`);
     console.log(JSON.stringify(raw, null, 2));
@@ -429,9 +381,7 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
   let derivAction = raw.derivatives.action;
   let derivInstr = raw.derivatives.adjustment.instruction;
 
-  // FALLING-KNIFE GUARD (deterministic backstop). Softened for the wheel: a
-  // long-term investor who wants the shares is partly buying the dip, so only a
-  // SEVERE breakdown forces PASS. A mild one is annotated and allowed through.
+  // Falling-knife guard: only a SEVERE breakdown forces PASS, since a wheeler is partly buying the dip.
   const pa = input.priceAction;
   if (pa && pa.signal === "breakdown" && derivAction === "SELL_CASH_SECURED_PUT") {
     const why = pa.reasons.slice(0, 3).join("; ") || "confirmed downside breakdown";
@@ -475,8 +425,6 @@ export async function synthesizeVerdict(input: SynthInput): Promise<Omit<Verdict
     riskFactor: raw.riskFactor,
     stock,
     derivatives,
-    // Echo the standing technical state back so the client can display the
-    // support/resistance/structure levels that fed this verdict.
     technicalIndicators: input.technicalIndicators ?? null,
   };
 }

@@ -1,16 +1,8 @@
-// Prompt for the web-grounded Stock Digest panel.
-//
-// The model runs with Google Search grounding (see grounded.ts), so this is a
-// plain user prompt — NOT a structured-JSON system prompt. It reproduces the
-// Gemini web experience for the user's standing question, then appends a
-// machine-readable SIGNAL line the panel parses for the direction chip + synth.
-//
-// The signal reports a single SHORT-TERM (next-month) direction — that is the
-// horizon the derivatives sleeve trades, so the prompt keeps it explicitly
-// scoped to the next month rather than a blurred multi-quarter view.
+// User prompt for the web-grounded Stock Digest panel.
 
 export const SIGNAL_SENTINEL = "===SIGNAL===";
 
+/** Builds the grounded digest prompt for a ticker, including the trailing signal block. */
 export function buildDigestPrompt(ticker: string): string {
   return [
     `What happened to ${ticker} stock price and what do you think of the short term sentiment for this ticker? E.g. within the next month`,

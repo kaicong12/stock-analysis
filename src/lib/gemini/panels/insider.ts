@@ -1,9 +1,4 @@
-// Insider-transactions panel. Data is SEC Form 4 via Massive (ex-Polygon),
-// fetched in src/lib/massive/insider.ts. Prompt body lives in ./prompts/insider.ts.
-//
-// Division of labour: the FLOW aggregates and the rendered transaction rows are
-// computed deterministically in code (numbers must be exact); the LLM only
-// writes the narrative (direction/headline/conclusion/bullets) around them.
+// Insider-transactions panel: LLM narrative over code-computed Form 4 aggregates.
 
 import { genJson } from "../client";
 import type {
@@ -27,15 +22,14 @@ function money(v: number): string {
   return `${sign}$${Math.round(a)}`;
 }
 
-// Row colour: open-market buys are bullish (green); only DISCRETIONARY sells are
-// bearish (red). Routine 10b5-1 plan sells and comp plumbing render neutral so a
-// large-cap's wall of pre-scheduled selling doesn't paint the panel red.
+// Maps a transaction to the row direction: only open-market buys and discretionary sells are directional.
 function flowDirection(t: InsiderTransaction): InsiderFlowItem["direction"] {
   if (t.code === "P") return "buy";
   if (t.code === "S" && t.isDiscretionary) return "sell";
   return "neutral";
 }
 
+// Projects a transaction onto the row shape the UI sub-block renders.
 function toFlowItem(t: InsiderTransaction): InsiderFlowItem {
   return {
     name: t.name,
@@ -50,6 +44,7 @@ function toFlowItem(t: InsiderTransaction): InsiderFlowItem {
   };
 }
 
+/** Produces the insider panel summary, attaching the deterministic chips and rows in code. */
 export async function analyzeInsider(
   input: InsiderResult | null,
   ctx: PanelContext,
@@ -60,9 +55,6 @@ export async function analyzeInsider(
 
   const { flow, notable } = input;
 
-  // Deterministic meta chips — exact numbers, never routed through the LLM. The
-  // chips separate conviction (Buys / Disc. Sells) from routine 10b5-1 selling
-  // so the user sees at a glance how much of the activity actually matters.
   const meta: PanelMeta[] = [
     { label: "Buys", value: flow.buyCount > 0 ? `${flow.buyCount} · ${money(flow.buyValue)}` : "0" },
     { label: "Disc. Sells", value: flow.discSellCount > 0 ? `${flow.discSellCount} · ${money(flow.discSellValue)}` : "0" },
@@ -70,12 +62,8 @@ export async function analyzeInsider(
     { label: "Net Conviction", value: money(flow.netConviction) },
   ];
 
-  // Deterministic transaction rows for the UI sub-block.
   const insiderFlow = notable.map(toFlowItem);
 
-  // Prompt payload: authoritative aggregates + ranked notable rows. Each row
-  // carries the 10b5-1 plan flag and % of the insider's stake so the LLM can
-  // distinguish routine diversification from genuine conviction.
   const notableForPrompt = notable.map((t) => ({
     name: t.name,
     title: t.title,
@@ -113,7 +101,5 @@ export async function analyzeInsider(
     temperature: 0.3,
   });
 
-  // Attach the deterministic blocks AFTER synthesis so the exact figures and rows
-  // are guaranteed correct regardless of what the LLM echoed.
   return { ...summary, meta, insiderFlow };
 }

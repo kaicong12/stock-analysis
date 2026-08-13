@@ -1,3 +1,5 @@
+// Hero block — ticker, live price, and the levels strip beneath it.
+
 "use client";
 
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +8,7 @@ import { fmtNum } from "./format";
 
 const TAG = "rounded border-outline-variant bg-surface-high px-2 py-0.5 text-[11px] font-medium tracking-[0.02em] text-on-surface-variant";
 
+/** Renders the ticker, its snapshot price and day change, and the levels strip. */
 export function Hero({ data }: { data: DashboardData }) {
   const snap = data.snapshot;
   const change = snap ? snap.lastPrice - snap.prevClose : 0;
@@ -48,11 +51,7 @@ export function Hero({ data }: { data: DashboardData }) {
   );
 }
 
-// Swing support/resistance + market structure, server-computed (see the
-// /technical/indicators endpoint). Sits below the price as a compact, scannable
-// strip — support emerald (price floor), resistance crimson (ceiling) — so the
-// levels that drive strike placement are visible at a glance. Renders nothing
-// until the verdict (which carries the indicators) is ready.
+// Renders swing support, resistance and market structure as a compact strip.
 function LevelsStrip({ ti }: { ti: TechnicalIndicators }) {
   const hasLevels = ti.support != null || ti.resistance != null;
   const hasStructure = ti.structureBias && ti.structureBias !== "n/a";
@@ -99,6 +98,7 @@ function LevelsStrip({ ti }: { ti: TechnicalIndicators }) {
   );
 }
 
+// Pairs a caps label with its value in the levels strip.
 function LevelGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline gap-2">
@@ -108,6 +108,7 @@ function LevelGroup({ label, children }: { label: string; children: React.ReactN
   );
 }
 
+// Renders the secondary levels that trail a group's primary value.
 function LevelExtra({ children }: { children: React.ReactNode }) {
   return <span className="text-[11px] font-medium text-on-surface-variant tabular-nums">{children}</span>;
 }

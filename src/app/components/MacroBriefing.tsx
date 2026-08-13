@@ -1,3 +1,5 @@
+// Macro Environment card — the session's macro briefing, with loading and error states.
+
 "use client";
 
 import { Markdown } from "./Markdown";
@@ -10,8 +12,7 @@ interface Props {
   status: "idle" | "loading" | "ready" | "error";
 }
 
-// `!` on the heading/list rules: they have to outrank `.markdown h1` from
-// Markdown.module.css, whose selector carries equal specificity.
+// `!` throughout: these rules must outrank the equal-specificity selectors in Markdown.module.css.
 const PROSE =
   "text-[12.5px] leading-[1.6] text-on-surface-variant " +
   "[&>*:first-child]:mt-0! " +
@@ -21,6 +22,7 @@ const PROSE =
   "[&_ul]:pl-4! [&_ul]:mt-0! [&_ul]:mb-2! [&_ol]:pl-4! [&_ol]:mt-0! [&_ol]:mb-2! " +
   "[&_li]:marker:text-primary";
 
+/** Renders the macro briefing card for the given fetch status. */
 export function MacroBriefing({ text, status }: Props) {
   return (
     <Card className="gap-3.5 border-outline-variant px-6 py-5">

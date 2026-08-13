@@ -1,10 +1,4 @@
-// Stock Digest panel. Web-grounded: a single Gemini + Google Search call answers
-// the user's standing short-term-sentiment question (same as the Gemini web app),
-// and the SAME call emits a machine-readable SIGNAL line we parse for direction.
-//
-// The panel renders the model's prose verbatim (PanelSummary.prose, markdown).
-// The parsed SHORT-TERM direction drives the chip and — critically — feeds the
-// synth's derivatives sleeve, which trades the next-month horizon.
+// Stock Digest panel: one web-grounded call yielding verbatim prose plus a parsed short-term signal.
 
 import { genGrounded } from "../grounded";
 import type { PanelDirection, PanelSummary } from "../../types";
@@ -24,17 +18,19 @@ interface DigestSignal {
   catalysts: DigestCatalyst[];
 }
 
+// Narrows an unknown value to a PanelDirection, defaulting to neutral.
 function coerceDirection(v: unknown): PanelDirection {
   return typeof v === "string" && (DIRECTION_ENUM as string[]).includes(v)
     ? (v as PanelDirection)
     : "neutral";
 }
 
+// Narrows an unknown value to a DigestCatalyst, or null when it carries no event.
 function coerceCatalyst(v: unknown): DigestCatalyst | null {
   if (!v || typeof v !== "object") return null;
   const o = v as Record<string, unknown>;
   const event = typeof o.event === "string" && o.event.trim() ? o.event.trim() : null;
-  if (!event) return null; // no material catalyst — leave it null
+  if (!event) return null;
   const impact =
     o.impact === "bullish" || o.impact === "bearish" ? o.impact : "uncertain";
   return {
@@ -45,9 +41,7 @@ function coerceCatalyst(v: unknown): DigestCatalyst | null {
   };
 }
 
-// One-line catalyst tag for the headline (the chip + the synth's compressed view).
-// Leads with the nearest catalyst and notes how many more follow; the full
-// "Upcoming catalysts" list still renders from prose.
+// Renders the nearest catalyst as a one-line headline tag, with a count of the rest.
 function catalystTag(catalysts: DigestCatalyst[]): string {
   const [next, ...rest] = catalysts;
   const when = next.date ? ` ${next.date}` : "";
@@ -56,9 +50,7 @@ function catalystTag(catalysts: DigestCatalyst[]): string {
   return `Next catalyst: ${next.event}${when} (${status}, ${next.impact})${more}`;
 }
 
-// Split the grounded text into the user-facing prose and the parsed signal.
-// The model is told to end with `===SIGNAL=== {json}`. We tolerate a missing or
-// malformed signal (prose still renders; direction falls back to neutral).
+// Splits the grounded text at the signal sentinel into prose and a parsed signal, which may be absent.
 function splitSignal(raw: string): { prose: string; signal: DigestSignal | null } {
   const idx = raw.lastIndexOf(SIGNAL_SENTINEL);
   if (idx === -1) return { prose: raw, signal: null };
@@ -85,21 +77,17 @@ function splitSignal(raw: string): { prose: string; signal: DigestSignal | null 
   }
 }
 
+/** Produces the Stock Digest panel from a single web-grounded call. */
 export async function analyzeDigest(ctx: PanelContext): Promise<PanelSummary> {
   const { text, citations } = await genGrounded(buildDigestPrompt(ctx.ticker));
   if (!text) return emptyEvidencePanel("No web-grounded digest available.");
 
   const { prose, signal } = splitSignal(text);
 
-  // Chip + synth direction = the SHORT-TERM read (derivatives horizon). The
-  // headline carries the crisp short-term note so the compressed synth view has
-  // a one-line bias even though the full prose is also passed through.
   const direction = signal?.shortTerm ?? "neutral";
   const note =
     signal?.shortTermNote?.trim() ||
     `${ctx.ticker} — short-term web-grounded digest`;
-  // Append a one-line catalyst tag so the chip + the synth's compressed view carry
-  // the nearest binary event crisply; the full "Upcoming catalysts" list is in prose.
   const headline =
     signal?.catalysts?.length ? `${note} · ${catalystTag(signal.catalysts)}` : note;
 

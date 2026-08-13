@@ -1,5 +1,6 @@
-// The Fed's own machine-readable calendar. `days` on an "FOMC Meeting" row is
-// the single day-2 decision date (the 2:00 p.m. statement), not the meeting span.
+// FOMC decision dates, read from the Fed's own machine-readable calendar.
+
+// `days` on an "FOMC Meeting" row is the single day-2 decision date, not the meeting span.
 const CALENDAR_URL = "https://www.federalreserve.gov/json/calendar.json";
 const TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -13,6 +14,7 @@ interface FedEvent {
 let cache: { dates: string[]; at: number } | null = null;
 let inflight: Promise<string[]> | null = null;
 
+// Fetches the calendar and extracts the deduped, sorted FOMC decision dates.
 async function load(): Promise<string[]> {
   const res = await fetch(CALENDAR_URL, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -32,8 +34,7 @@ async function load(): Promise<string[]> {
   return [...new Set(dates)].sort();
 }
 
-// Every FOMC decision date the Fed publishes, ascending. Returns [] on any
-// failure — a missing runway marker degrades the desk, it never blocks it.
+/** Returns every published FOMC decision date, ascending, or [] on any failure. */
 export async function fetchFomcDates(): Promise<string[]> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.dates;
   if (inflight) return inflight;

@@ -1,9 +1,6 @@
-// Shared date helpers. Kept dependency-free so both API routes and the Gemini
-// panels can use them without pulling in heavier modules.
+// Shared, dependency-free date helpers.
 
-// Whole days from today (UTC) to an ISO date string (YYYY-MM-DD anywhere in it).
-// Returns null when the input is missing or unparseable. Negative when the date
-// is in the past.
+/** Returns whole UTC days from today to an ISO date (negative when past), or null if unparseable. */
 export function daysUntilISO(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const m = /(\d{4})-(\d{2})-(\d{2})/.exec(iso);

@@ -1,3 +1,5 @@
+// Typed client for the python sidecar's moomoo/yfinance endpoints.
+
 import { env } from "../env";
 import type {
   AnomalyKind,
@@ -41,6 +43,7 @@ interface RawSnapshotResponse {
   };
 }
 
+// Issues a GET against the sidecar and parses the JSON body.
 async function callSidecar<T>(path: string, params: Record<string, string>): Promise<T> {
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${env.pyBackendUrl}${path}?${qs}`, {
@@ -60,6 +63,7 @@ const PATHS: Record<AnomalyKind, string> = {
   derivatives: "/anomaly/derivatives",
 };
 
+/** Fetches the anomaly report for one dimension of a symbol. */
 export async function getAnomaly(
   kind: AnomalyKind,
   symbol: string,
@@ -85,15 +89,13 @@ interface RawFundamentalsResponse {
   data: FundamentalsData;
 }
 
+/** Fetches yfinance fundamentals for a symbol. */
 export async function getFundamentals(symbol: string): Promise<FundamentalsResult> {
   const r = await callSidecar<RawFundamentalsResponse>("/fundamentals", { symbol });
   return { symbol: r.symbol, yfTicker: r.yfTicker, data: r.data };
 }
 
-// Deterministic price-action breakdown/breakout signal (yfinance daily OHLCV).
-// Feeds the verdict's falling-knife guard. Returns null on any sidecar failure —
-// the guard then no-ops (a missing signal must never block a normal verdict).
-// The backend already emits camelCase, so this is a thin typed pass-through.
+/** Fetches the deterministic breakdown/breakout signal; null on any sidecar failure. */
 export async function getPriceAction(symbol: string): Promise<PriceAction | null> {
   try {
     return await callSidecar<PriceAction>("/price-action", { symbol });
@@ -102,12 +104,7 @@ export async function getPriceAction(symbol: string): Promise<PriceAction | null
   }
 }
 
-// Standing technical-indicator readings (RSI/MACD/Bollinger/SMA distances) from
-// the sidecar's /technical/indicators. Complements the technical anomaly feed:
-// the anomaly report only carries fresh EVENTS, this carries the current STATE
-// (e.g. RSI 80 = overbought even with no new cross). Returns null on any sidecar
-// failure — the technical panel still runs on the anomaly text alone. The
-// backend already emits camelCase, so this is a thin typed pass-through.
+/** Fetches the standing technical-indicator readings; null on any sidecar failure. */
 export async function getTechnicalIndicators(symbol: string): Promise<TechnicalIndicators | null> {
   try {
     return await callSidecar<TechnicalIndicators>("/technical/indicators", { symbol });
@@ -116,8 +113,7 @@ export async function getTechnicalIndicators(symbol: string): Promise<TechnicalI
   }
 }
 
-// A PROXY for IV Rank — no source carries historical implied vol, so this ranks
-// realized vol. Null on failure: the pane hides the regime block.
+/** Fetches the realized-vol percentile regime — a proxy for IV Rank, never true IVR; null on failure. */
 export async function getVolRegime(
   symbol: string,
   targetDte = 30,
@@ -132,8 +128,7 @@ export async function getVolRegime(
   }
 }
 
-// Null on failure — the pane still renders the zone and regime, which is most of
-// the "what price" answer without live quotes.
+/** Fetches the scored wheel strike chain; null on failure. */
 export async function getWheelChain(
   symbol: string,
   targetDtes?: number[],
@@ -148,8 +143,7 @@ export async function getWheelChain(
   }
 }
 
-// Raw sidecar shape: the SDK's nested {context, update_time, update_time_str}
-// objects are preserved by /research/morningstar; we flatten .context here.
+// The sidecar preserves the SDK's nested text objects; .context is flattened below.
 interface RawMorningstarText {
   context?: string;
 }
@@ -178,17 +172,16 @@ interface RawMorningstarResponse {
   } | null;
 }
 
+// Flattens one nested text object to a trimmed string.
 function msText(v: RawMorningstarText | null | undefined): string {
   return (v?.context ?? "").trim();
 }
+// Flattens a list of nested text objects, dropping empties.
 function msTextList(v: (RawMorningstarText | null)[] | null | undefined): string[] {
   return (v ?? []).map(msText).filter(Boolean);
 }
 
-// Morningstar research report via the sidecar (OpenD). The News Flow panel's
-// self-signal — fair value, moat, uncertainty, bull/bear, analyst note. Returns
-// an unavailable report (never throws) so the panel degrades to "n/a" + the
-// peer read-through still renders.
+/** Fetches the Morningstar research report, returning an unavailable report rather than throwing. */
 export async function getMorningstar(symbol: string): Promise<MorningstarReport> {
   const unavailable: MorningstarReport = {
     symbol,
@@ -241,6 +234,7 @@ export async function getMorningstar(symbol: string): Promise<MorningstarReport>
   }
 }
 
+/** Fetches the latest price snapshot for a symbol. */
 export async function getSnapshot(symbol: string): Promise<SnapshotResult> {
   const r = await callSidecar<RawSnapshotResponse>("/snapshot", { symbol });
   const d = r.data;
@@ -258,9 +252,7 @@ export async function getSnapshot(symbol: string): Promise<SnapshotResult> {
   };
 }
 
-// Large-cap sector peers (OpenD plates, $10B+ / >= $20 filter applied server-side).
-// Returns an empty peer list rather than throwing on any failure (no INDUSTRY
-// plate, OpenD down, etc.) so the News panel still renders its self-news block.
+/** Fetches large-cap sector peers, returning an empty peer list rather than throwing. */
 export async function getPeers(symbol: string, top = 8): Promise<PeersResult> {
   try {
     const r = await callSidecar<PeersResult>(`/peers/${encodeURIComponent(symbol)}`, {

@@ -1,14 +1,18 @@
+"""Liveness probe for the sidecar and its OpenD connection."""
+
 from fastapi import APIRouter
 from moomoo import RET_OK
 
 from config import OPEND_HOST, OPEND_PORT
+from models import HealthResponse
 from opend import quote_ctx
 
 router = APIRouter()
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse, response_model_exclude_none=True)
 def health() -> dict:
+    """Report whether OpenD answers a global-state query."""
     opend = f"{OPEND_HOST}:{OPEND_PORT}"
     try:
         with quote_ctx() as ctx:

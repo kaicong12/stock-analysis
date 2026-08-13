@@ -1,3 +1,5 @@
+// POST /api/prep — snapshot plus earnings pre-flight, before any panel runs.
+
 import type { NextRequest } from "next/server";
 import { getFundamentals, getSnapshot } from "../../../lib/moomoo/sidecar";
 import { normalizeSymbol, ticker as toTicker } from "../../../lib/symbol";
@@ -17,12 +19,11 @@ interface PrepResponse {
   symbol: string;
   snapshot: SnapshotResult;
   errors: { source: string; message: string }[];
-  // Cheap earnings pre-flight (yfinance, no Gemini) so the UI can warn BEFORE
-  // spending the panel calls. null when unavailable — the gate just won't fire.
   nextEarningsDate: string | null;
   earningsDaysAway: number | null;
 }
 
+/** Resolves the ticker to a snapshot and its next earnings date. */
 export async function POST(request: NextRequest) {
   let body: PrepBody;
   try {
@@ -56,8 +57,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Earnings pre-flight: cheap yfinance read (no Gemini). A failure here must
-  // never block prep — fall back to null so the gate simply doesn't fire.
+  // A failed earnings read must never block prep — null just means the gate won't fire.
   let nextEarningsDate: string | null = null;
   try {
     const fundamentals = await getFundamentals(symbol);

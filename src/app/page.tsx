@@ -1,3 +1,5 @@
+// Dashboard page — drives the prep, earnings gate, panel and verdict sequence.
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -18,12 +20,9 @@ import { VerdictCard } from "./components/VerdictCard";
 type PanelKey = keyof Verdict["panels"];
 const PANELS: PanelKey[] = ["fundamentals", "capital", "technical", "sentiment", "digest", "news", "insider"];
 
-// Earnings within this many days (inclusive) triggers the pre-search confirm
-// gate — matches the conservative "no binary events in the 30-45 DTE expiry
-// window" rule. The user can still continue past it.
+// Covers the "no binary events inside the 30-45 DTE expiry window" rule; the gate warns, not blocks.
 const EARNINGS_GATE_DAYS = 45;
 
-// Shape returned by /api/prep — the post-prep payload reused by the panel run.
 type PrepPayload = {
   ticker: string;
   symbol: string;
@@ -49,7 +48,6 @@ interface State {
   snapshot: SnapshotResult | null;
   panels: Record<PanelKey, PanelState>;
   verdict: Verdict | null;
-  // Earnings pre-flight (from /api/prep). Drives the confirm gate.
   earningsDaysAway: number | null;
   nextEarningsDate: string | null;
 }
@@ -86,6 +84,7 @@ const INITIAL: State = {
   nextEarningsDate: null,
 };
 
+// Applies one action to the page state.
 function reducer(state: State, a: Action): State {
   switch (a.type) {
     case "set_input":
@@ -102,8 +101,6 @@ function reducer(state: State, a: Action): State {
     case "reset":
       return { ...INITIAL };
     case "earnings_gate":
-      // Earnings near — pause BEFORE the panel calls. The snapshot is shown (so
-      // the Hero renders) but panels stay idle until the user confirms.
       return {
         ...state,
         status: "earnings_gate",
@@ -150,6 +147,7 @@ function reducer(state: State, a: Action): State {
   }
 }
 
+// POSTs a JSON body and resolves the parsed response, throwing the API's error message.
 async function postJson<T>(url: string, body: unknown, signal: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
@@ -162,11 +160,11 @@ async function postJson<T>(url: string, body: unknown, signal: AbortSignal): Pro
   return json as T;
 }
 
+/** Renders the dashboard and orchestrates the analysis run for one ticker. */
 export default function Page() {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const abortRef = useRef<AbortController | null>(null);
-  // Holds the prep result + its abort signal while the earnings gate is open, so
-  // "Continue anyway" can resume straight into the panel run without re-prepping.
+  // Held while the gate is open so "Continue anyway" resumes without re-prepping.
   const pendingPrepRef = useRef<{ prep: PrepPayload; signal: AbortSignal } | null>(null);
 
   const [macroText, setMacroText] = useState<string | null>(null);
@@ -174,15 +172,10 @@ export default function Page() {
   // Market-wide: fetched once on mount, never keyed by ticker. The server cache does the sharing.
   const [digest, setDigest] = useState<MarketDigestResult | null>(null);
   const [digestStatus, setDigestStatus] = useState<"idle" | "loading" | "ready" | "error">("loading");
-  // Mirror of macroText for runAnalysis to read without taking macroText as a
-  // dependency — keeps runAnalysis identity stable so the URL-hydration effect
-  // doesn't re-fire (and re-run a whole analysis) when macro lands.
+  // Read in place of macroText so runAnalysis's identity stays stable and the URL-hydration effect can't re-fire.
   const macroTextRef = useRef<string | null>(null);
 
-  // Macro briefing — fetched once on mount, cached in sessionStorage for the session.
-  // The synchronous cache read is intentionally client-only (lazy useState init
-  // would risk an SSR hydration mismatch), so the set-state-in-effect rule is
-  // disabled narrowly for the mount-time hydration branch below.
+  // The cache read stays in an effect — lazy useState init would risk an SSR hydration mismatch.
   useEffect(() => {
     const CACHE_KEY = "macro_briefing_v1";
     const cached = sessionStorage.getItem(CACHE_KEY);
@@ -219,8 +212,7 @@ export default function Page() {
       .catch(() => setDigestStatus("error"));
   }, []);
 
-  // The expensive half: 7 panel Gemini calls + the synth verdict. Split out of
-  // runAnalysis so the earnings gate can defer it until the user confirms.
+  // Runs every panel then the synth verdict; split out so the earnings gate can defer it.
   const runPanelsAndVerdict = useCallback(async (prep: PrepPayload, signal: AbortSignal) => {
     const panelResults = await Promise.allSettled(
       PANELS.map(async (name) => {
@@ -266,6 +258,7 @@ export default function Page() {
     dispatch({ type: "verdict_done", verdict: { ...verdictRes.verdict, panels: { ...summaries } } });
   }, []);
 
+  // Preps the ticker, then either opens the earnings gate or runs the panels.
   const runAnalysis = useCallback(async (rawTicker: string) => {
     const t = rawTicker.trim();
     if (!t) return;
@@ -285,9 +278,6 @@ export default function Page() {
       return;
     }
 
-    // Earnings-first gate: if a print lands inside the expiry window, pause and
-    // let the user decide BEFORE spending the panel calls. Stash prep so
-    // "Continue anyway" resumes without re-prepping.
     const dte = prep.earningsDaysAway;
     if (dte != null && dte >= 0 && dte <= EARNINGS_GATE_DAYS) {
       pendingPrepRef.current = { prep, signal };
@@ -299,7 +289,7 @@ export default function Page() {
     await runPanelsAndVerdict(prep, signal);
   }, [runPanelsAndVerdict]);
 
-  // "Continue anyway" from the earnings gate — resume the deferred panel run.
+  // Resumes the deferred panel run when the user accepts the earnings gate.
   const continueFromGate = useCallback(() => {
     const pending = pendingPrepRef.current;
     if (!pending || pending.signal.aborted) return;
@@ -308,7 +298,7 @@ export default function Page() {
     void runPanelsAndVerdict(pending.prep, pending.signal);
   }, [runPanelsAndVerdict]);
 
-  // "Cancel" from the earnings gate — abort and return to idle.
+  // Aborts the pending run and returns to idle when the user declines the gate.
   const cancelGate = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;

@@ -1,9 +1,4 @@
 // System prompt for the News Flow panel.
-// Self-signal: a Morningstar research report (OpenD get_research_morningstar_report)
-// — fair value, economic moat, uncertainty, bull/bear case, capital allocation,
-// the latest analyst note. This REPLACED the moomoo news-search feed, which was
-// recency-sorted noise that buried material multi-day-old stories. The peer
-// read-through sub-block is unchanged and still rides on this panel.
 
 export const SYSTEM = `You are the research desk analyst. Your self-signal is a Morningstar equity research report for a single ticker; you distil it into a structured panel. You may also receive sector-PEER news, used ONLY for the read-through sub-block.
 

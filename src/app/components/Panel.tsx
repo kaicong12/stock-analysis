@@ -1,3 +1,5 @@
+// Panel card — one analysis panel's synthesis plus its evidence sub-blocks.
+
 "use client";
 
 import type { ReactNode } from "react";
@@ -52,6 +54,7 @@ export const PANEL_ICONS: Record<keyof Verdict["panels"], ReactNode> = {
 const SUB_LABEL = "mb-1.5 text-[9.5px] font-bold tracking-[0.08em] uppercase text-on-surface-variant";
 const TILE = "rounded border border-outline-variant bg-surface-low";
 
+/** Renders one panel's summary, or its fallback text when there is none. */
 export function Panel(props: {
   title: string;
   icon: ReactNode;
@@ -136,6 +139,7 @@ const DIRECTION_CLS: Record<PanelDirection, string> = {
   "n/a": "border-outline-variant bg-surface-low text-on-surface-variant",
 };
 
+// Renders the panel's direction as a toned badge.
 function DirectionChip({ direction }: { direction: PanelDirection }) {
   const label = direction === "n/a" ? "No data" : direction.charAt(0).toUpperCase() + direction.slice(1);
   return (
@@ -151,6 +155,7 @@ function DirectionChip({ direction }: { direction: PanelDirection }) {
   );
 }
 
+// Renders the panel's metric tiles as a wrapping row.
 function MetaRow({ meta }: { meta: PanelMeta[] }) {
   return (
     <div className="flex flex-wrap gap-2 pt-1">
@@ -166,6 +171,7 @@ function MetaRow({ meta }: { meta: PanelMeta[] }) {
   );
 }
 
+// Lists the first five cited sources as numbered links.
 function EvidenceList({ items }: { items: PanelEvidence[] }) {
   return (
     <div className="flex flex-col gap-2">
@@ -196,9 +202,7 @@ const RT_DIR_CLS: Record<ReadThrough["direction"], string> = {
   neutral: "text-neutral",
 };
 
-// Peer read-through: sector-peer news with a read-through direction FOR this
-// ticker. Deliberately rendered apart from the self-news evidence so peer
-// headlines are never mistaken for the ticker's own news.
+// Lists sector-peer headlines, kept apart from self-news so the two can't be confused.
 function ReadThroughBlock({ items }: { items: ReadThrough[] }) {
   return (
     <div>
@@ -224,6 +228,7 @@ function ReadThroughBlock({ items }: { items: ReadThrough[] }) {
 const RT_ITEM =
   "flex flex-col gap-1 rounded border border-outline-variant border-l-2 border-l-current bg-surface-low px-2.5 py-[7px] no-underline transition-colors hover:bg-surface-high";
 
+// Renders the name, routine flag and trailing tag shared by read-through and insider rows.
 function RowHead({ peer, tag, routine }: { peer: string; tag: string; routine?: boolean }) {
   return (
     <div className="flex items-center gap-2">
@@ -247,6 +252,7 @@ const INSIDER_DIR_CLS: Record<InsiderFlowItem["direction"], string> = {
   neutral: "text-neutral",
 };
 
+// Abbreviates a transaction value to K/M dollars.
 function insiderMoney(v: number): string {
   const a = Math.abs(v);
   if (a >= 1_000_000) return `$${(a / 1_000_000).toFixed(1)}M`;
@@ -255,10 +261,7 @@ function insiderMoney(v: number): string {
   return "—";
 }
 
-// Insider transaction sub-block. Discretionary open-market buys/sells get a
-// green/red left border (the conviction trades); routine 10b5-1 plan sells and
-// comp plumbing (grants/exercises/tax) render neutral grey with a "routine" tag,
-// so a large-cap's wall of pre-scheduled selling never reads as red conviction.
+// Lists Form 4 transactions; routine ones stay neutral so scheduled selling can't read as conviction.
 function InsiderFlowBlock({ items }: { items: InsiderFlowItem[] }) {
   return (
     <div>
@@ -287,6 +290,7 @@ function InsiderFlowBlock({ items }: { items: InsiderFlowItem[] }) {
 
 const NEWS_ITEM = "flex flex-col gap-0.5 rounded px-2.5 py-2 transition-colors hover:bg-surface-high";
 
+// Lists recent headlines with their relative age.
 function NewsList({ items }: { items: NewsItem[] }) {
   return (
     <div className="flex flex-col gap-2.5">
@@ -300,6 +304,7 @@ function NewsList({ items }: { items: NewsItem[] }) {
   );
 }
 
+// Lists community posts, linking each back to its moomoo feed entry.
 function FeedList({ posts }: { posts: CommentSentimentResult["posts"] }) {
   return (
     <div className="flex flex-col gap-2.5">

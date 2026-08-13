@@ -6,6 +6,7 @@ from indicators import historical_vol, historical_vol_series, percentile_rank
 
 
 def _series(n: int, up: float, down: float) -> list[float]:
+    """Build n+1 closes alternating between the `up` and `down` factors."""
     closes = [100.0]
     for i in range(n):
         closes.append(closes[-1] * (up if i % 2 == 0 else down))
@@ -37,7 +38,6 @@ def test_vol_expansion_lands_high_in_its_own_range():
 
 
 def test_percentile_rank_mid_ranks_ties():
-    # A flat series should read neither high nor low.
     assert percentile_rank([0.2] * 50, 0.2) == 50.0
 
 
