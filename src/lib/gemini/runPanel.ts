@@ -2,7 +2,6 @@
 
 import { collatePeerNews, getStockFeed } from "../moomoo/httpApi";
 import { getAnomaly, getFundamentals, getMorningstar, getPeers, getTechnicalIndicators } from "../moomoo/sidecar";
-import { getInsiderTransactions } from "../massive/insider";
 import { ticker as toTicker } from "../symbol";
 import type { PanelSummary } from "../types";
 import type { PanelKey } from "../types";
@@ -10,7 +9,6 @@ import {
   analyzeCapital,
   analyzeDigest,
   analyzeFundamentals,
-  analyzeInsider,
   analyzeNews,
   analyzeSentiment,
   analyzeTechnical,
@@ -65,10 +63,6 @@ export async function runPanel(name: PanelKey, ticker: string, symbol: string): 
         summary: await analyzeFundamentals(data, ctx),
         nextEarningsDate: data?.data?.nextEarningsDate ?? null,
       };
-    }
-    case "insider": {
-      const data = await getInsiderTransactions(ticker);
-      return { summary: await analyzeInsider(data, ctx) };
     }
   }
 }

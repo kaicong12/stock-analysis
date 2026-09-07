@@ -4,13 +4,20 @@ import { GoogleGenAI } from "@google/genai";
 import { env } from "../env";
 
 const PROMPT =
-  "Browse the web and give me the CURRENT macro backdrop plus the upcoming macro calendar for the next ~60 days. " +
-  "Two short sections:\n" +
-  "(1) Current regime — the Fed/rate stance, the latest inflation trend (CPI/PPI/PCE), and the single dominant market risk right now. " +
-  "This is standing state, not a recap of past events.\n" +
-  "(2) Upcoming scheduled events (next ~60 days), each WITH ITS DATE — FOMC meetings, CPI/PPI releases, Non-Farm Payrolls, GDP prints, " +
-  "PCE, and any other major known macro catalysts. Lead with the nearest dated events.\n" +
-  "Be concise — bullet points per item. Do NOT recap past events that are already priced in.";
+  "Browse the web and brief me on the macro backdrop for US equities. Every line must say what it MEANS for the stock market — " +
+  "a bare fact or a bare calendar entry is useless to me. Three short sections:\n\n" +
+  "(1) Regime — the Fed/rate stance and the latest inflation trend (CPI/PPI/PCE) as STANDING STATE, not a recap of past events. " +
+  "For each, state the read-through in the same bullet: which way it pushes equity multiples, and whether it is currently a tailwind, " +
+  "a headwind, or neutral for a broad long-only equity book.\n\n" +
+  "(2) Dominant risk — the single biggest thing that could reprice the index in the next ~60 days, and what a move in it does to stocks " +
+  "(direction and rough magnitude of the reaction).\n\n" +
+  "(3) Calendar (next ~60 days), nearest first, each WITH ITS DATE — FOMC, CPI/PPI, Non-Farm Payrolls, PCE, GDP, and any other major " +
+  "known catalyst. For EACH event give one line in the form: what the market is currently pricing in, then **what happens to equities " +
+  "if it comes in hot vs. soft**. Skip events with no plausible market impact.\n\n" +
+  "Close with one line: what this backdrop means for equity volatility over the next 30-45 days (elevated / calm / event-driven around " +
+  "specific dates), since that is the window I sell options in.\n\n" +
+  "Bullet points, one or two sentences each, no preamble. Do NOT recap past events that are already priced in. " +
+  "Do NOT mention individual tickers or give trade recommendations — this is index-level context only.";
 
 const TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 

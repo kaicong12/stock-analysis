@@ -22,7 +22,6 @@ interface VerdictBody {
     digest: PanelSummary;
     sentiment: PanelSummary;
     fundamentals: PanelSummary;
-    insider: PanelSummary;
   };
 }
 

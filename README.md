@@ -2,7 +2,7 @@
 
 A wheel-entry desk for one ticker at a time. You bring a company you already want to own; the app answers **is this a good price, and where do I sell the put.**
 
-Seven panels run in parallel — each one LLM call over a focused slice of data — and a final synth call turns them into a dual-sleeve verdict: a stock action and a wheel action. The wheel read has no panel: it is fully deterministic, so the Strike Desk renders it directly and the synth call reads the same plan. All deterministic math (indicators, levels, vol, the option chain) is computed by a Python sidecar and cited verbatim; the model never recomputes it.
+Six panels run in parallel — each one LLM call over a focused slice of data — and a final synth call turns them into a dual-sleeve verdict: a stock action and a wheel action. The wheel read has no panel: it is fully deterministic, so the Strike Desk renders it directly and the synth call reads the same plan. All deterministic math (indicators, levels, vol, the option chain) is computed by a Python sidecar and cited verbatim; the model never recomputes it.
 
 **No broker integration**, deliberately — no account, NAV, cash, or position data, and it never asks for any. Both sleeves are **entry-or-pass on a fresh position**, and no output ever states a size. See `CLAUDE.md` for the trading profile.
 
@@ -26,7 +26,6 @@ Repo-root `.env` (also sourced by `scripts/dev.sh`). Definitions live in `src/li
 |---|---|
 | `OPENROUTER_API_KEY` | **Required.** The panel/synth LLM. `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite-preview` |
 | `GEMINI_API_KEY` | Web-grounded surfaces (Stock Digest, macro briefing). `GEMINI_GROUNDED_MODEL` defaults to `gemini-2.5-flash` |
-| `MASSIVE_API_KEY` | SEC Form 4 insider data; the panel degrades to "no activity" when unset |
 | `PYBACKEND_URL` | Sidecar, default `http://localhost:8765` |
 | `FUTU_OPEND_HOST` / `FUTU_OPEND_PORT` | OpenD, default `127.0.0.1:11111` (read by the sidecar) |
 | `SYNTH_DEBUG` | Any non-empty value logs the full synth payload and the raw pre-override model output |
@@ -37,12 +36,12 @@ Repo-root `.env` (also sourced by `scripts/dev.sh`). Definitions live in `src/li
 flowchart TD
     A["POST /api/prep<br/>snapshot + earnings pre-flight"] --> S0{"ticker recognized?"}
     S0 -- no --> R["404 TICKER_NOT_FOUND"]
-    S0 -- yes --> S2["7 × POST /api/panel/[name]<br/>(parallel, 7 LLM calls)"]
+    S0 -- yes --> S2["6 × POST /api/panel/[name]<br/>(parallel, 6 LLM calls)"]
     S2 --> S3["POST /api/verdict (1 LLM call)<br/>panels + priceAction + indicators + wheel plan + macro"]
     S3 --> OUT["Verdict: stock sleeve + wheel sleeve"]
 ```
 
-Every step renders the moment it resolves: `src/app/page.tsx` fans the seven panel requests out concurrently and dispatches each result as it lands, so panels fill in one by one rather than waiting on the slowest. Earnings inside the 45-day window pause the run before any LLM call and ask for confirmation.
+Every step renders the moment it resolves: `src/app/page.tsx` fans the six panel requests out concurrently and dispatches each result as it lands, so panels fill in one by one rather than waiting on the slowest. Earnings inside the 45-day window pause the run before any LLM call and ask for confirmation.
 
 **Storage:** one SQLite file, `data/app.sqlite`, owned entirely by the sidecar (`store.py`). It caches yfinance daily bars so HV and price action don't refetch per request. Fully rebuildable — delete it and the sidecar repopulates.
 
@@ -56,7 +55,6 @@ Every step renders the moment it resolves: `src/app/page.tsx` fans the seven pan
 | **News Flow** | Morningstar report (OpenD) + peer graph | Fair value, moat, bull/bear, analyst note — the self-signal. Peer headlines ride alongside as a separate sector read-through block, never mixed into the ticker's own signal. |
 | **Stock Digest** | Gemini, web-grounded | Browses live; broker reports and analyst notes on the near-term setup. |
 | **Community Sentiment** | moomoo community feed (public web API) | Retail tone — a contra-indicator at extremes. |
-| **Insider Flow** | SEC Form 4 via Massive | Discretionary buys/sells only; routine 10b5-1 plan sales are discounted. |
 
 ## The wheel read
 
@@ -76,7 +74,7 @@ Liquidity is **not** a gate: a thin far-OTM strike is still a legitimate entry, 
 
 ## The verdict
 
-One LLM call reads all seven panels plus the deterministic wheel plan; `src/lib/gemini/synth.ts` sets the reasoning order — acquisition price first, then the breakdown state, the regime read, vol as a bonus, strike placement, a mandatory earnings cite, and a rationale that has to quote actual numbers.
+One LLM call reads all six panels plus the deterministic wheel plan; `src/lib/gemini/synth.ts` sets the reasoning order — acquisition price first, then the breakdown state, the regime read, vol as a bonus, strike placement, a mandatory earnings cite, and a rationale that has to quote actual numbers.
 
 Three of those are **also enforced in code**, so a model that argues around the prompt still gets overridden:
 
